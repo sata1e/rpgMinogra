@@ -1556,7 +1556,38 @@ function project(v, out = [0, 0, 0]) {
 }
 // The bounds reject distant props cheaply. Only a visible surface between
 // the near plane and the ronin can make the complete prop translucent.
-let veilObject = false, veilDepth, veilColor;
+// The cached translucent layer stores object IDs, so its opacity can keep
+// changing after the camera stops without rasterizing the landscape again.
+let veilObject = 0, veilDepth, veilSurface;
+const fades = new Map(), opacity = [1], freeFadeIds = [];
+let fadeFrame = 0, lastFadeTime;
+function veilId(object, blocked, dynamic = false) {
+  let fade = fades.get(object);
+  if (!fade) {
+    if (!blocked) return 0;
+    const id = freeFadeIds.pop() ?? opacity.length;
+    opacity[id] = 1;
+    fade = {id, amount:0, blocked, dynamic, seen:fadeFrame};
+    fades.set(object, fade);
+  }
+  fade.blocked = blocked;
+  fade.seen = fadeFrame;
+  return fade.id;
+}
+function advanceFades(now, rebuilt) {
+  const dt = Math.min(50, Math.max(0, now-(lastFadeTime ?? now)));
+  lastFadeTime = now;
+  for (const [object,fade] of fades) {
+    if ((rebuilt || fade.dynamic) && fade.seen !== fadeFrame) fade.blocked = false;
+    fade.amount = Math.max(0, Math.min(1, fade.amount + (fade.blocked ? dt/260 : -dt/420)));
+    opacity[fade.id] = 1 - .87*ease(fade.amount);
+    if (!fade.blocked && fade.amount === 0) {
+      fades.delete(object);
+      freeFadeIds.push(fade.id);
+      if (!fade.dynamic) backdropKey = "";
+    }
+  }
+}
 const sightPoints = [];
 function updateSight() {
   const z = roadZ(run.depth), floor = groundHeight(run.pos,z);
@@ -1631,7 +1662,7 @@ function raster(a, b, c, m, l, f) {
       if (veilObject) {
         if (z > veilDepth[i]) {
           veilDepth[i] = z;
-          veilColor[i] = colours[m][Math.min(31, 5 + l*3)];
+          veilSurface[i] = (veilObject << 10) | (f ? 512 : 0) | (l << 6) | m;
         }
         continue;
       }
@@ -1714,7 +1745,7 @@ function drawScenery() {
       Math.abs(x * up[0] + y * up[1] + z * up[2]) > halfY * d + sideY * r
     )
       continue;
-    veilObject = !mirrorPass && blocksView(mesh.lo,mesh.hi,mesh.levels[0].faces);
+    veilObject = mirrorPass ? 0 : veilId(mesh, blocksView(mesh.lo,mesh.hi,mesh.levels[0].faces));
     const footprint = Math.max(0, d - r) / aspectY;
     const level =
       footprint > 16
@@ -1761,7 +1792,7 @@ function drawScenery() {
         );
     }
   }
-  veilObject = false;
+  veilObject = 0;
 }
 let waterVisible = false;
 function landscape() {
@@ -1886,12 +1917,12 @@ function shadows(x, z, rx, rz) {
   }
   panel(rim, 0, true, -5);
 }
-function drawProp(x,z,radius,height) {
+function drawProp(object,x,z,radius,height) {
   const base=groundHeight(x,z);
-  veilObject=blocksView([x-radius,base,z-radius],[x+radius,base+height,z+radius],scene.faces);
+  veilObject=veilId(object, blocksView([x-radius,base,z-radius],[x+radius,base+height,z+radius],scene.faces), true);
   drawFaces(scene.faces);
   scene.faces=[];
-  veilObject=false;
+  veilObject=0;
 }
 function drawInteractives() {
   for (const b of bells) {
@@ -1923,7 +1954,7 @@ function drawInteractives() {
       14,
       true,
     );
-    drawProp(b.x,b.z,16,56);
+    drawProp(b,b.x,b.z,16,56);
     if (t < 0.65)
       for (let j = 0; j < 30; j++) {
         const a = (j * 2 * Math.PI) / 30,
@@ -1963,7 +1994,7 @@ function drawInteractives() {
       12,
       true,
     );
-    drawProp(j.x,roadZ(j.y),15,44);
+    drawProp(j,j.x,roadZ(j.y),15,44);
   }
   for (const s of shards) {
     place(s.x, s.z);
@@ -2207,70 +2238,77 @@ function paintPixels() {
       const mat = materials[i],
         z = depths[i],
         lum = lights[i];
-      let tone = 4 + lum * 3.55,
-        fog = 0;
-      if (z === 0) {
-        tone = 3 + lum * 3.8;
-        if (mat === 11) tone = 12 + lum * 2.5;
-        if ((x + 3 * y) % 4 === 0) tone++;
-      } else {
-        const d = 1 / z,
-          u = (x + 0.5 - cols * 0.5) * invX,
-          wx = scene.eye[0] + (bx + u * right[0]) * d,
-          wy = scene.eye[1] + by * d,
-          wz = scene.eye[2] + (bz + u * right[2]) * d;
-        const sx = Math.floor(wx * 0.67),
-          sz = Math.floor((wz + wy * 0.77) * 0.67);
-        const fleck = grain[((sz & 127) << 7) + (sx & 127)];
-        fog = Math.min(15, Math.max(0, Math.floor((d - 270) / 92)));
-        if (mat === 36) {
-          imageWords[i] = waterPixel(
-            x,
-            y,
-            wx,
-            wz,
-            bx + u * right[0],
-            by,
-            bz + u * right[2],
-            lum,
-            fog,
-            fleck,
-          );
-          continue;
-        }
-        if (fine[i]) {
-          // Quiet weave on clothing, clean blade highlights and lacquer edges.
-          tone += mat === 7 ? 2 : (x + y) % 4 === 0 && mat !== 5 ? -1 : 0;
-        } else if (mat === 20) {
-          const course = Math.floor((wy + wz * 0.13) * 0.4),
-            tile = (Math.floor(wx) + (course >> 2) * 4) & 7;
-          tone +=
-            (tile === 0 ? -5 : tile === 1 ? 4 : 0) +
-            ((course & 3) === 0 ? -3 : 0);
-        } else if (mat === 21 || mat === 4) {
-          const fibre =
-            grain[((Math.floor(wy * 0.17) & 127) << 7) + ((sx + sz) & 127)];
-          tone += fibre * 0.8 + (Math.floor(wy) % 14 === 0 ? -3 : 0);
-        } else if (mat === 6 || mat === 24) {
-          tone +=
-            fleck * 1.5 +
-            (grain[((sz & 127) << 7) + ((sx + 1) & 127)] > 2 ? 2 : 0);
-        } else if (mat === 22) {
-          tone += fleck * 0.8;
-          const row = Math.floor(wz / 15),
-            px = wx + (row & 1) * 14;
-          const fx = px - Math.floor(px / 31) * 31,
-            fz = wz - row * 15;
-          if (fz < 1.3 || fx < 1.1) tone -= 4;
-          else if (fz < 2.7 || fx < 2.4) tone += 3;
-        } else if (mat === 8) {
-          tone += fleck * 0.45;
-        } else tone += fleck * 0.7;
-      }
-      imageWords[i] =
-        colours[mat][fog * 32 + Math.max(0, Math.min(31, Math.round(tone)))];
+      const base = shadePixel(x,y,mat,z,lum,fine[i],bx,by,bz,invX);
+      if (veilDepth[i] > z) {
+        const packed = veilSurface[i];
+        const tint = shadePixel(x,y,packed & 63,veilDepth[i],(packed >> 6) & 7,
+          packed & 512,bx,by,bz,invX);
+        imageWords[i] = blendWater(base,tint,opacity[packed >>> 10]);
+      } else imageWords[i] = base;
     }
   }
+}
+function shadePixel(x,y,mat,z,lum,detail,bx,by,bz,invX) {
+  let tone = 4 + lum * 3.55,
+    fog = 0;
+  if (z === 0) {
+    tone = 3 + lum * 3.8;
+    if (mat === 11) tone = 12 + lum * 2.5;
+    if ((x + 3 * y) % 4 === 0) tone++;
+  } else {
+    const d = 1 / z,
+      u = (x + 0.5 - cols * 0.5) * invX,
+      wx = scene.eye[0] + (bx + u * right[0]) * d,
+      wy = scene.eye[1] + by * d,
+      wz = scene.eye[2] + (bz + u * right[2]) * d;
+    const sx = Math.floor(wx * 0.67),
+      sz = Math.floor((wz + wy * 0.77) * 0.67);
+    const fleck = grain[((sz & 127) << 7) + (sx & 127)];
+    fog = Math.min(15, Math.max(0, Math.floor((d - 270) / 92)));
+    if (mat === 36) {
+      return waterPixel(
+        x,
+        y,
+        wx,
+        wz,
+        bx + u * right[0],
+        by,
+        bz + u * right[2],
+        lum,
+        fog,
+        fleck,
+      );
+    }
+    if (detail) {
+      // Quiet weave on clothing, clean blade highlights and lacquer edges.
+      tone += mat === 7 ? 2 : (x + y) % 4 === 0 && mat !== 5 ? -1 : 0;
+    } else if (mat === 20) {
+      const course = Math.floor((wy + wz * 0.13) * 0.4),
+        tile = (Math.floor(wx) + (course >> 2) * 4) & 7;
+      tone +=
+        (tile === 0 ? -5 : tile === 1 ? 4 : 0) +
+        ((course & 3) === 0 ? -3 : 0);
+    } else if (mat === 21 || mat === 4) {
+      const fibre =
+        grain[((Math.floor(wy * 0.17) & 127) << 7) + ((sx + sz) & 127)];
+      tone += fibre * 0.8 + (Math.floor(wy) % 14 === 0 ? -3 : 0);
+    } else if (mat === 6 || mat === 24) {
+      tone +=
+        fleck * 1.5 +
+        (grain[((sz & 127) << 7) + ((sx + 1) & 127)] > 2 ? 2 : 0);
+    } else if (mat === 22) {
+      tone += fleck * 0.8;
+      const row = Math.floor(wz / 15),
+        px = wx + (row & 1) * 14;
+      const fx = px - Math.floor(px / 31) * 31,
+        fz = wz - row * 15;
+      if (fz < 1.3 || fx < 1.1) tone -= 4;
+      else if (fz < 2.7 || fx < 2.4) tone += 3;
+    } else if (mat === 8) {
+      tone += fleck * 0.45;
+    } else tone += fleck * 0.7;
+  }
+  return colours[mat][fog * 32 + Math.max(0, Math.min(31, Math.round(tone)))];
 }
 let backdrop = null,
   backdropKey = "";
@@ -2310,7 +2348,7 @@ function renderWorld() {
     lights = new Uint8Array(cols * rows);
     fine = new Uint8Array(cols * rows);
     veilDepth=new Float32Array(cols*rows);
-    veilColor=new Uint32Array(cols*rows);
+    veilSurface=new Uint32Array(cols*rows);
     backdrop = [
       new Float32Array(cols * rows),
       new Uint8Array(cols * rows),
@@ -2327,17 +2365,19 @@ function renderWorld() {
     view.cameraPitch,
     view.cameraRange, sightPoints[0][1],
   ].join("/");
-  if (key === backdropKey) {
+  fadeFrame++;
+  const rebuilt = key !== backdropKey;
+  if (!rebuilt) {
     depths.set(backdrop[0]);
     materials.set(backdrop[1]);
     lights.set(backdrop[2]);
-    veilDepth.set(backdrop[3]); veilColor.set(backdrop[4]);
+    veilDepth.set(backdrop[3]); veilSurface.set(backdrop[4]);
     fine.fill(0);
   } else {
     landscape();
     veilDepth.fill(0);
     drawScenery();
-    backdrop[3].set(veilDepth); backdrop[4].set(veilColor);
+    backdrop[3].set(veilDepth); backdrop[4].set(veilSurface);
     if (waterVisible) renderReflection();
     backdrop[0].set(depths);
     backdrop[1].set(materials);
@@ -2345,11 +2385,9 @@ function renderWorld() {
     backdropKey = key;
   }
   actors3d();
+  advanceFades(started, rebuilt);
   edgeLight();
   paintPixels();
-  for (let i=0; i<imageWords.length; i++) {
-    if (veilDepth[i]>depths[i]) imageWords[i]=blendWater(imageWords[i],veilColor[i],.13);
-  }
   ctx.putImageData(frameImage, 0, 0);
   if (!run.paused) tuneResolution(performance.now() - started);
 }
