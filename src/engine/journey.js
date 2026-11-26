@@ -434,12 +434,15 @@ function attack(requestedStyle) {
   }
   struck.clear();
   spirit -= cut().cost;
-  const target = view.mouseLook
-    ? { x: -Math.sin(view.cameraYaw), y: -Math.cos(view.cameraYaw) }
-    : combatFacing(run.heading);
   strikeStartYaw = Math.atan2(run.heading.y, run.heading.x);
-  const delta = Math.atan2(target.y, target.x) - strikeStartYaw;
-  strikeTurn = Math.atan2(Math.sin(delta), Math.cos(delta));
+  strikeTurn = 0;
+  if (style === 0) {
+    const target = view.mouseLook
+      ? { x: -Math.sin(view.cameraYaw), y: -Math.cos(view.cameraYaw) }
+      : combatFacing(run.heading);
+    const delta = Math.atan2(target.y, target.x) - strikeStartYaw;
+    strikeTurn = Math.atan2(Math.sin(delta), Math.cos(delta));
+  }
   run.attackDir = { ...run.heading };
   attackFace = Math.sign(run.attackDir.x) || face;
   run.attackAt = run.phase;
