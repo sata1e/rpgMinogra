@@ -30,7 +30,7 @@ let edgeTurn = 0;
 let releasingLock = false;
 const heldAlts = new Set();
 function syncCursor() {
-  document.documentElement.classList.toggle("hide-game-cursor", document.pointerLockElement === canvas && !run.paused && heldAlts.size === 0);
+  document.documentElement.classList.toggle("hide-game-cursor", !run.paused && heldAlts.size === 0);
 }
 function releaseMouse() {
   if (document.pointerLockElement === canvas && !releasingLock) {
