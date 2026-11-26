@@ -150,6 +150,11 @@ function worldPoint([x, y, z]) {
     y += torsoPose.shrug * blend;
     z += torsoPose.lateral * (1 - 0.27 * blend);
   }
+  if (rollPose?.chin) {
+    const h = y - rollPose.chin.y, f = x - rollPose.chin.x;
+    x = rollPose.chin.x + f * rollPose.chin.cos + h * rollPose.chin.sin;
+    y = rollPose.chin.y + h * rollPose.chin.cos - f * rollPose.chin.sin;
+  }
   const c = Math.cos(orientation),
     s = Math.sin(orientation);
   let dx = scene.unit * (x * c - z * s),
@@ -167,13 +172,23 @@ function worldPoint([x, y, z]) {
     }
   }
   if (rollPose) {
-    const {x, y} = run.rollDir;
+    const {x, y, bankCos, bankSin} = rollPose;
+    const side = -dx * y + dz * x;
+    const up = height - 36;
+    const lean = side * (bankCos - 1) - up * bankSin;
+    dx -= y * lean;
+    dz += x * lean;
+    height = 36 + side * bankSin + up * bankCos;
     const forward = dx * x + dz * y;
-    const h = height - 43;
+    const h = height - 36;
     const shift = forward * (rollPose.cos - 1) + h * rollPose.sin;
     dx += x * shift;
     dz += y * shift;
-    height = Math.max(1, 43 + h * rollPose.cos - forward * rollPose.sin);
+    height = 36 + h * rollPose.cos - forward * rollPose.sin;
+    const vertex = [origin[0] + dx, height, origin[2] + dz];
+    rollPose.vertices.push(vertex);
+    if (rollPose.bodyContact) rollPose.lowest = Math.min(rollPose.lowest, height);
+    return vertex;
   }
   return [origin[0] + dx, height, origin[2] + dz];
 }
@@ -1082,11 +1097,21 @@ function ronin() {
   const age = run.phase - run.attackAt,
     p = katanaPose(age),
     dir = age < cut().duration ? run.attackDir : run.heading;
+  const tuck = rollPose?.tuck ?? 0;
+  if (tuck) {
+    p.drop += 25 * tuck;
+    p.coil -= 0.4 * tuck;
+    if (run.bladeOut) {
+      p.tsuba = blend3(p.tsuba, [14, 11, 42], tuck);
+      p.yaw = mix(p.yaw, -2.94, tuck);
+      p.pitch = mix(p.pitch, 0.14, tuck);
+    }
+    p.mouth[2] -= 25 * tuck;
+  }
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
     shift = p.shift,
-    slide = Math.sin(Math.PI * clamp01((run.phase - run.rollAt) / rollDuration)),
-    drop = p.drop + slide * 8;
+    drop = p.drop;
   const footLift =
     heroMotion.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0;
   const sway = Math.sin(run.phase * 2.4) * 0.55 + footLift * 0.18;
@@ -1096,16 +1121,18 @@ function ronin() {
     heroMotion.feet?.angle ?? Math.atan2(dir.y, dir.x),
   );
   const hip = shift * 0.82,
-    shoulder = 3 + shift * 1.23 + slide * 7,
-    neck = 82 - drop + sway;
+    shoulder = 3 + shift * 1.23 + tuck * 14,
+    neck = 82 - drop + sway - 8 * tuck;
   for (const sign of [-1, 1]) {
     let [foot, lift, footZ] = localFoot(
       heroMotion,
       sign < 0 ? 0 : 1,
       humanFeet,
     );
-    foot = mix(foot, sign * 6 + 7, slide);
-    lift = mix(lift, sign < 0 ? 19 : 13, slide);
+    const gather = rollPose?.gather ?? 0;
+    foot = mix(foot, sign < 0 ? 10 : -4, tuck);
+    lift = mix(lift, sign < 0 ? 19 : 13, gather);
+    footZ = mix(footZ, sign * 4.5, gather);
     const ankle = foot - 1;
     const knee = bendJoint(
       [hip, 48 - drop, sign * 5.5 + p.lateral],
@@ -1195,6 +1222,7 @@ function ronin() {
     true,
   );
   torsoPose = null;
+  if (rollPose) rollPose.bodyContact = false;
   const mouth = point(v.mouth),
     shoe = point(v.shoe);
   const saya = (t) => mouth.map((n, i) => mix(n, shoe[i], t));
@@ -1204,7 +1232,12 @@ function ronin() {
   for (const t of [0.17, 0.22, 0.27])
     rod(saya(t), saya(t + 0.024), 3, 30, true);
   torsoPose = p;
+  if (rollPose) {
+    rollPose.bodyContact = true;
+    rollPose.chin = {x: shoulder + 3, y: neck, cos: Math.cos(tuck * 1.25), sin: Math.sin(tuck * 1.25)};
+  }
   maskedHead(shoulder + 3, neck);
+  if (rollPose) rollPose.chin = null;
   torsoPose = null;
   const reach = p.reach;
   const walkSwing =
@@ -1223,10 +1256,12 @@ function ronin() {
   const pommelHand = blend3(point(v.guard), point(v.rear), 0.83);
   arm3(
     shoulderPoint([shoulder, neck - 8, -13]),
-    blend3(support, pommelHand, p.supportGrip),
+    blend3(blend3(support, pommelHand, p.supportGrip), [shoulder + 8, neck + 3, -7], tuck),
     -1,
   );
-  arm3(shoulderPoint([shoulder + 2, neck - 8, 13]), wrist, 1);
+  arm3(shoulderPoint([shoulder + 2, neck - 8, 13]),
+    run.bladeOut ? wrist : blend3(wrist, [shoulder + 8, neck, 9], tuck), 1);
+  if (rollPose) rollPose.bodyContact = false;
   const hilt = (t) =>
     point(v.rear).map((value, i) => mix(value, point(v.guard)[i], t));
   rod(hilt(0), hilt(1), 2.05, 0, true);
@@ -1722,11 +1757,25 @@ function actors3d() {
   bodyTilt = impactTilt(heroMotion, 30);
   const roll = (run.phase - run.rollAt) / rollDuration;
   if (roll >= 0 && roll < 1) {
-    const angle = Math.PI * 2 * ease(roll);
-    rollPose = {sin: Math.sin(angle), cos: Math.cos(angle)};
+    const tuck = ease(roll / .23) * (1 - ease((roll - .67) / .33));
+    const gather = ease((roll - .10) / .24) * (1 - ease((roll - .61) / .19));
+    const angle = Math.PI * 2 * ease((roll - .10) / .72);
+    const bank = .78 * tuck;
+    const skew = .24 * tuck;
+    const {x, y} = run.rollDir;
+    rollPose = {
+      x: x * Math.cos(skew) - y * Math.sin(skew), y: y * Math.cos(skew) + x * Math.sin(skew),
+      sin: Math.sin(angle), cos: Math.cos(angle), bankSin: Math.sin(bank), bankCos: Math.cos(bank),
+      tuck, gather, vertices: [], lowest: Infinity, bodyContact: true
+    };
   }
   ronin();
-  rollPose = null;
+  if (rollPose) {
+    // Anchor the lowest body point as support passes from feet to shoulder and back.
+    const offset = (1 - rollPose.lowest) * rollPose.tuck;
+    for (const vertex of rollPose.vertices) vertex[1] += offset;
+    rollPose = null;
+  }
   bodyTilt = null;
   for (let i = first; i < scene.faces.length; i++) {
     const face = scene.faces[i];

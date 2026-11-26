@@ -15,7 +15,7 @@ import {
   resolveContacts,
 } from "./valley.js";
 import { chapterTitle } from "./lettering.js";
-import { motion, ease, bladeSweep, swordContact, mix } from "./wanderer.js";
+import { motion, ease, katanaPose, weaponGeometry, bladeSweep, swordContact, mix } from "./wanderer.js";
 import { expireCombatFx, sampleBladeTrace, impactFx } from "./combat-fx.js";
 import { roadZ } from "./world3d.js";
 const run = {};
@@ -144,6 +144,8 @@ function depthScale(y) {
 }
 let spirit = 100;
 run.guardAt = -10;
+run.deflectedAt = -10;
+run.deflectSide = 1;
 let riposteUntil = -10;
 run.combo = 0;
 let feedback = "";
@@ -303,6 +305,7 @@ function parry() {
   run.windAt = null;
   run.attackAt = -10;
   parryUsed = false;
+  run.deflectedAt = -10;
   run.bladeOut = true;
   run.bladeChanged = -10;
   run.guardAt = run.phase;
@@ -779,16 +782,16 @@ function update(dt) {
           guardAge >= parryTiming.open && guardAge <= parryTiming.close &&
           dx * run.heading.x + dy * run.heading.y >= dist * 0.5;
         if (inStrike && canParry) {
-          impactFx(
-            null,
-            {
-              x: run.pos + run.heading.x * 18,
-              y: run.depth / depthRatio + run.heading.y * 18,
-              z: 65,
-            },
-            run.heading.x,
-            run.heading.y,
-          );
+          run.deflectedAt = run.phase;
+          run.deflectSide = dx * run.heading.y - dy * run.heading.x >= 0 ? 1 : -1;
+          const blade = weaponGeometry(katanaPose(run.phase - run.attackAt), run.heading, run.pos, run.depth);
+          impactFx(null, blade.middle, run.heading.x, run.heading.y);
+          d.deflectedAt = run.phase;
+          d.deflectSide = run.deflectSide;
+          d.turnAt = run.phase;
+          d.hitTwist = run.deflectSide * .48;
+          bodyImpact(d, dx + run.heading.y * run.deflectSide * 18,
+            dy - run.heading.x * run.deflectSide * 18, 84);
           d.wind = -10;
           d.chain = 0;
           d.exposed = run.phase + 1.1;

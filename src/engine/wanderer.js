@@ -29,8 +29,10 @@ const lightArcs = [
 function katanaPose(age) {
   const move = cut(),
     midCut = age >= 0 && age < move.duration;
-  const parryAge = run.phase - run.guardAt,
-    blocking = parryAge >= 0 && parryAge < parryTiming.recover && !midCut;
+  const parryAge = run.phase - run.guardAt;
+  const sinceContact = run.phase - run.deflectedAt;
+  const blocking = run.guardAt > run.rollAt && !midCut &&
+    (parryAge < parryTiming.recover || sinceContact < .34);
   const transition = clamp01((run.phase - run.bladeChanged) / 0.48);
   const carry = run.bladeOut ? transition : 1 - transition;
   const readyHand = [19, 2, 57],
@@ -131,6 +133,15 @@ function katanaPose(age) {
     reach = Math.max(reach, guard);
     yaw = mix(yaw, -0.9, guard);
     pitch = mix(pitch, 1, guard);
+    if (sinceContact >= 0 && sinceContact < .34) {
+      const beat = ease(sinceContact / .115) * (1 - ease((sinceContact - .115) / .225));
+      const side = run.deflectSide;
+      hand = blend3(hand, [27, 15 * side, 66], beat);
+      yaw += 1.35 * side * beat;
+      pitch -= .48 * beat;
+      coil += .65 * side * beat;
+      lateral += 3.5 * side * beat;
+    }
   } else if (
     run.bladeOut &&
     run.windAt === null &&
