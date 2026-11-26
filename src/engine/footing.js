@@ -23,7 +23,7 @@ const houndFeet = [
 function advanceFeet(b, dt) {
   const actor = b.ref,
     hero = actor === heroMotion;
-  const tripod = actor.missingPaw!==undefined;
+  const tripod = actor.missingPaws?.size===1;
   if (!hero && (actor.type === undefined || actor.type === 1)) return;
   if (hero && run.phase - run.rollAt < rollDuration) {
     actor.feet = null;
@@ -86,7 +86,7 @@ function advanceFeet(b, dt) {
   if (rig.time >= rig.duration) {
     let error = 0;
     rig.feet.forEach((f, i) => {
-      if (tripod && i===actor.missingPaw) return;
+      if (tripod && actor.missingPaws.has(i)) return;
       error = Math.max(error, Math.hypot(f.x - homes[i][0], f.z - homes[i][1]));
     });
     if (error < 4) {
@@ -108,7 +108,7 @@ function advanceFeet(b, dt) {
       } else rig.group = errors[0] > errors[1] ? 0 : 1;
     } else if (tripod) {
       rig.group = (rig.group+1)%4;
-      if (rig.group===actor.missingPaw) rig.group=(rig.group+1)%4;
+      if (actor.missingPaws.has(rig.group)) rig.group=(rig.group+1)%4;
     } else rig.group = 1 - rig.group;
     rig.hasStepped = true;
     const surface = groundKind(b.x, b.z);

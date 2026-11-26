@@ -474,7 +474,7 @@ function swordContact(edges, d) {
     const limb = level < 0.25 && d.type !== 1;
     for (const side of limb || arm ? [-1, 1] : [0]) {
       const paw = d.type===0 && limb ? (side>0?2:0)+(forward>0?1:0) : null;
-      if ((arm && d.missingArm===side) || (paw!==null && d.missingPaw===paw)) continue;
+      if ((arm && d.missingArms?.has(side)) || (paw!==null && d.missingPaws?.has(paw))) continue;
       const lateral = side * width * (arm ? 1.28 : .52);
       let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
         y = forward * Math.sin(facing) + lateral * Math.cos(facing),

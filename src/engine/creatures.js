@@ -131,7 +131,7 @@ function houndModel(d, load, snap, fall, sampleLunge) {
   for (const s of [-1, 1]) {
     for (const front of [false, true]) {
       const index = (s > 0 ? 2 : 0) + (front ? 1 : 0);
-      if (d.missingPaw===index) {
+      if (d.missingPaws?.has(index)) {
         ovalMesh(front?13:-20,h-1,s*8,4,4.5,3.6,4);
         continue;
       }
@@ -342,7 +342,7 @@ function warBlade(hand, tip) {
   );
 }
 function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
-  const sink = impactDrop(d,run.phase);
+  const sink = impactDrop(d,run.phase)+(d.missingArms?.size===2 ? 8*pose.lift*(1-pose.recover) : 0);
   const breath =
     Math.sin(run.phase * 2 + d.home) * 0.7 - sink +
     (d.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0) * 0.14;
@@ -408,11 +408,11 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
       );
     }
     const firstArmFace = scene.faces.length;
-    if (d.missingArm===s) {
+    if (d.missingArms?.has(s)) {
       ovalMesh(surge,shoulder-2,s*15,5,5.5,3.5,plate);
       continue;
     }
-    const active = s === (d.missingArm ? -d.missingArm : boss && pose.reverse ? -1 : 1);
+    const active = d.missingArms?.size===1 || s === (boss && pose.reverse ? -1 : 1);
     const bash = active && !boss && s<0;
     const shove = bash ? (-8*load+20*pose.strike)*(1-pose.recover) : 0;
     const { hand, elbow, tip } = active

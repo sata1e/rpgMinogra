@@ -30,7 +30,7 @@ function sample(keys, t) {
   const u = Math.max(0, Math.min(1, (t - a[0]) / (b[0] - a[0])));
   return b.slice(1).map((v, j) => a[j + 1] + (v - a[j + 1]) * u * u * (3 - 2 * u));
 }
-function riseTime(d) { return d.missingPaw!==undefined ? 1.26 : [.65, .81, .94, 1.14][d.type]; }
+function riseTime(d) { return d.missingPaws?.size ? 1.26 : [.65, .81, .94, 1.14][d.type]; }
 const hold = .28;
 export function knockdownDuration(d) { return d.fallTime + hold + riseTime(d); }
 export function knockdownPose(d, now) {
@@ -39,11 +39,17 @@ export function knockdownPose(d, now) {
   let rise = Math.max(0, (age - riseStart) / riseTime(d));
   if (!d.hp) {
     // A lethal hit interrupts a rise from its current pose.
-    rise = Math.max(0, (d.diedAt - d.fellAt - riseStart) / riseTime(d) - (now - d.diedAt) / .35);
+    const diedAt=d.diedAt ?? now;
+    rise = Math.max(0, (diedAt - d.fellAt - riseStart) / riseTime(d) - (now - diedAt) / .35);
   }
-  if (hound && d.missingPaw!==undefined && rise>0 && rise<1) {
+  if (hound && d.missingPaws?.size && rise>0 && rise<1) {
     // First push slips; gather the remaining feet before the second effort.
     rise = rise<.32 ? rise*1.45 : rise<.52 ? .464-(rise-.32)*1.35 : .194+(rise-.52)*.806/.48;
+  }
+  if (d.missingPaws?.size>=2) {
+    // If the second paw goes during a rise, ease back from that exact pose.
+    const failed=d.failedRise;
+    rise=failed ? Math.min(1,failed.from)*Math.max(0,1-(now-failed.at)/.3) : 0;
   }
   const [angle, drop, fold, spread, brace] = rise > 0
     ? sample(hound ? houndUp : knightUp, rise)

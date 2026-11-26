@@ -1473,8 +1473,13 @@ function impactTilt(actor, pivot) {
   const age = run.phase - (actor.deflectedAt ?? -10);
   const stagger = age >= 0 && age < riposteWindow
     ? ease(age / .14) * (1 - ease((age - .48) / (riposteWindow - .48))) : 0;
-  const leanX = (actor.recoil?.x || 0) + .36 * stagger * (actor.staggerX || 0);
-  const leanZ = (actor.recoil?.z || 0) + .36 * stagger * (actor.staggerZ || 0);
+  let rushLean=0;
+  if (actor.missingArms?.size===2) {
+    const {load,snap}=demonAttackPose(actor);
+    rushLean=-.18*load+.58*snap;
+  }
+  const leanX = (actor.recoil?.x || 0) + .36 * stagger * (actor.staggerX || 0) + rushLean*(actor.aimX||0);
+  const leanZ = (actor.recoil?.z || 0) + .36 * stagger * (actor.staggerZ || 0) + rushLean*(actor.aimY||0);
   const angle = Math.hypot(leanX, leanZ);
   return angle
     ? {
@@ -1502,7 +1507,7 @@ function enemyLocalPoint(point, scale) {
 export function demonFacing(d) {
   const twist = (d.hitTwist || 0) * Math.sin(Math.PI * clamp01((run.phase - (d.turnAt ?? -10)) / .48));
   const facing = d.fellAt !== undefined ? d.fallFacing :
-    d.type === 0 && d.wind >= 0 ? Math.atan2(d.aimY, d.aimX) :
+    (d.type===0 || d.missingArms?.size===2) && d.wind>=0 ? Math.atan2(d.aimY, d.aimX) :
     d.feet?.angle ?? Math.atan2(roadZ(run.depth) - roadZ(d.y), run.pos - d.x);
   return facing + twist;
 }
@@ -1518,7 +1523,7 @@ export function demonAttackPose(d) {
   return {winding, lift, strike, recover, load, snap: strike * (1 - recover)};
 }
 export function houndBackHeight(d, load, snap) {
-  const limp=d.missingPaw===undefined ? 0 : 3+(d.feet?.feet[d.feet.group]?.h||0)*.32;
+  const limp=!d.missingPaws?.size ? 0 : 3+(d.feet?.feet[d.feet.group]?.h||0)*.32;
   return 32 + Math.sin(run.phase * 3 + d.home) * .65 - limp - load * 10 + snap * 4 - impactDrop(d,run.phase);
 }
 function demon(d) {
@@ -1542,7 +1547,7 @@ function demon(d) {
       : guarding ? strike * ease(guardAge / parryTiming.open) : 0;
     const boss = d.type === 3;
     const point = bind ? enemyLocalPoint(scene.heroBladeMiddle, boss ? 1.17 : 1) : null;
-    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse || d.missingArm===-1, side: d.deflectSide || 1}, boss, point, bind, fall, winding && combatOpponent(d) ? addAttackSight : null);
+    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse || d.missingArms?.has(-1), side: d.deflectSide || 1}, boss, point, bind, fall, winding && combatOpponent(d) ? addAttackSight : null);
   }
   if (d.kind === 4 || d.kind === 5) {
     const reed = d.kind === 4;
@@ -2340,8 +2345,8 @@ export function cutVegetation(edges, heavy, direction, limit=edges.length) {
 
 export function severDemon(d,hit,direction,vertical) {
   const paw=hit.paw;
-  const losePaw=paw!=null && d.missingPaw===undefined;
-  const loseArm=hit.arm && !d.missingArm;
+  const losePaw=paw!=null && !d.missingPaws?.has(paw);
+  const loseArm=hit.arm && !d.missingArms?.has(hit.arm);
   if (d.hp && !losePaw && !loseArm) return false;
   const facing=demonFacing(d);
   const side=Math.sign(-(hit.x-d.x)*Math.sin(facing)+(hit.y-d.y/depthRatio)*Math.cos(facing)) || 1;
@@ -2350,7 +2355,7 @@ export function severDemon(d,hit,direction,vertical) {
   // A wounded enemy can crumple on its remaining limbs; reserve a new
   // full-body split for a heavy finisher or an intact target.
   if (!d.hp && !vertical && !head && !losePaw && !loseArm &&
-      (d.missingArm || d.missingPaw!==undefined)) return false;
+      (d.missingArms?.size || d.missingPaws?.size)) return false;
   const localForward=(hit.x-d.x)*Math.cos(facing)+(hit.y-d.y/depthRatio)*Math.sin(facing);
   const coords=new WeakMap(), saved=scene.faces;
   scene.faces=[];
@@ -2368,8 +2373,14 @@ export function severDemon(d,hit,direction,vertical) {
   if (loseArm || losePaw) {
     const limb=faces.filter(f=>loseArm ? f.arm===hit.arm : f.paw===paw);
     if (!limb.length) return false;
-    if (loseArm) d.missingArm=hit.arm;
-    else d.missingPaw=paw;
+    if (loseArm) (d.missingArms ??= new Set()).add(hit.arm);
+    else {
+      if (d.missingPaws?.size===1 && d.fellAt!==undefined) {
+        d.failedRise={at:run.phase, from:knockdownPose(d,run.phase).rise};
+      }
+      (d.missingPaws ??= new Set()).add(paw);
+    }
+    d.injurySide=loseArm ? hit.arm : paw>=2 ? 1 : -1;
     releaseFragment(limb,direction,46);
     return true;
   }

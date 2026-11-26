@@ -776,8 +776,8 @@ function unbalance(d, x, z, strength, level, torque = 0) {
   if (down) {
     d.fellAt = run.phase;
     d.fallAngle = Math.atan2(z, x) + (leg ? 0.37 * torque : 0);
-    if (d.missingPaw!==undefined || (!d.hp && d.missingArm)) {
-      d.fallSide=d.missingArm || (d.missingPaw>=2 ? 1 : -1);
+    if (d.missingPaws?.size || (!d.hp && d.missingArms?.size)) {
+      d.fallSide=d.injurySide;
       d.fallAngle=d.fallFacing+d.fallSide*1.15;
     }
 
@@ -927,8 +927,9 @@ function update(dt) {
   for (const d of guards) {
     if (!d.hp || !activeGuard(d)) continue;
     const traits = enemies[d.kind],
-      bash = d.type===2 && d.missingArm===1,
-      range = bash ? 48 : d.missingPaw!==undefined ? 53 : traits.range,
+      bodyRush = d.missingArms?.size===2,
+      bash = !bodyRush && d.type===2 && d.missingArms?.has(1),
+      range = bodyRush ? bodySizes[d.type][0]+42 : bash ? 48 : d.missingPaws?.size ? 53 : traits.range,
       dx = d.x - run.pos,
       dy = (d.y - run.depth) / depthRatio,
       dist = Math.hypot(dx, dy);
@@ -943,7 +944,7 @@ function update(dt) {
       const blocked =
         difficulty !== difficulties.easy &&
         d.type === 2 &&
-        d.missingArm !== -1 &&
+        !d.missingArms?.has(-1) &&
         d.fellAt === undefined &&
         run.phase > d.exposed &&
         d.wind < 0 &&
@@ -991,7 +992,7 @@ function update(dt) {
           health = Math.min(100, health + difficulty.heal);
           run.cleanAt = run.attackAt + cut().duration;
           if (guards.every((enemy) => !enemy.hp)) {
-            victoryAt = run.phase + (d.severed || d.missingArm || d.missingPaw!==undefined ? 1.1 : cut().link?.overheadFinish ? .32 : 0);
+            victoryAt = run.phase + (d.severed || d.missingArms?.size || d.missingPaws?.size ? 1.1 : cut().link?.overheadFinish ? .32 : 0);
           }
           continue;
         }
@@ -1000,7 +1001,14 @@ function update(dt) {
     if (d.fellAt !== undefined || run.phase < d.stunned) continue;
     if (d.wind >= 0) {
       const windup = enemyWindup(d);
-      if (d.type === 0 && d.missingPaw===undefined && run.phase - d.wind > windup * 0.52) {
+      if (bodyRush) {
+        const age=run.phase-d.wind;
+        const drive=t=>ease((t/windup-.58)/.42);
+        const step=20*(drive(age)-drive(age-dt));
+        d.x+=d.aimX*step;
+        d.y+=d.aimY*step*depthRatio;
+      }
+      if (d.type === 0 && !d.missingPaws?.size && run.phase - d.wind > windup * 0.52) {
         d.x += (d.aimX * dt * 215) / difficulty.windup;
         d.y = d.y + ((d.aimY * dt * 215) / difficulty.windup) * depthRatio;
       }
@@ -1010,6 +1018,7 @@ function update(dt) {
           d.type === 1
             ? distanceTo(d.aimX, d.aimY) < 47
             : d.type === 0 ? biteReachesPlayer(d)
+            : bodyRush ? bodyRushConnects(d)
             : dist < range + (bash?5:20) && -dx * d.aimX - dy * d.aimY > -10;
         const guardAge = run.phase - run.guardAt;
         const canParry = !parryUsed && !rolling &&
@@ -1056,7 +1065,7 @@ function update(dt) {
           );
           health = Math.max(
             0,
-            health - Math.round(traits.damage * difficulty.incoming * (bash ? .65 : 1)),
+            health - Math.round(traits.damage * difficulty.incoming * (bodyRush ? .55 : bash ? .65 : 1)),
           );
           bodyImpact(heroMotion, -dx, -dy, traits.damage * 4 + 55);
           run.windAt = null;
@@ -1096,7 +1105,7 @@ function update(dt) {
       d.dir = Math.sign(-dx) || d.dir;
       d.wind = run.phase;
       d.chain =
-        d.type === 3 && !d.missingArm && difficulty.chain
+        d.type === 3 && !d.missingArms?.size && difficulty.chain
           ? difficulty.chain + Number(d.hp <= 6)
           : 0;
       d.aimX = d.type === 1 ? run.pos : -dx / (dist || 1);
@@ -1113,7 +1122,7 @@ function update(dt) {
         length,
         dt *
           terrainSpeed(d.x, roadZ(d.y)) *
-          (chase ? traits.speed * difficulty.speed : 32)*(d.missingPaw!==undefined ? .54 : 1),
+          (chase ? traits.speed * difficulty.speed : 32)*(d.missingPaws?.size ? .54 : 1),
       );
       d.dir = Math.sign(vx) || d.dir;
       d.x += (step * vx) / length;
@@ -1134,7 +1143,7 @@ function update(dt) {
   settleRecoil(heroMotion, dt);
   for (const d of guards) {
     settleRecoil(d, dt);
-    if (d.hp && d.fellAt !== undefined && run.phase - d.fellAt >= knockdownDuration(d)) {
+    if (d.hp && !(d.missingPaws?.size>=2) && d.fellAt !== undefined && run.phase - d.fellAt >= knockdownDuration(d)) {
       delete d.fellAt;
       d.feet = null;
     }
@@ -1158,7 +1167,13 @@ function biteReachesPlayer(d) {
 function enemyWindup(d) {
   const base =
     d.type === 3 ? (d.hp <= 6 ? 0.43 : 0.58) : enemies[d.kind].windup;
-  return base * difficulty.windup * (d.missingArm===1 && d.type===2 ? .78 : d.missingArm || d.missingPaw!==undefined ? 1.22 : 1);
+  if (d.missingArms?.size===2) return .66*difficulty.windup;
+  return base * difficulty.windup * (d.missingArms?.has(1) && d.type===2 ? .78 : d.missingArms?.size || d.missingPaws?.size ? 1.22 : 1);
+}
+function bodyRushConnects(d) {
+  const x=run.pos-d.x, z=(run.depth-d.y)/depthRatio;
+  const forward=x*d.aimX+z*d.aimY, side=x*d.aimY-z*d.aimX;
+  return forward>0 && Math.abs(side)<26 && Math.hypot(x,z)<=bodySizes[d.type][0]+26;
 }
 
 export {
