@@ -515,6 +515,7 @@ function startCut(style, previous = null) {
   }
   const previousAge = run.phase-run.attackAt;
   const link = previous ? {
+    returnFromDraw: style === 0 && previous.entry.steppingDraw,
     pose: previous.releasePose ?? katanaPose(previousAge),
     guard: previous.releasePose ? 0 : ease((previousAge-previous.end)/(previous.duration-previous.end)),
     lead: previous.entry.leadSide > 0 ? 0 : 1,
@@ -567,7 +568,12 @@ function startCut(style, previous = null) {
     landing = contactBeat;
     const side = lead ? 1 : -1;
     const foot = rig.feet[lead];
-    const forward = 16 + base.step*.5;
+    let forward = 16 + base.step*.5;
+    if (link.returnFromDraw) {
+      const planted = rig.feet[1-lead];
+      const ahead = (planted.x-rig.x)*Math.cos(yaw)+(planted.z-rig.z)*Math.sin(yaw);
+      forward = Math.max(forward,Math.min(29,ahead+9));
+    }
     rig.group = lead;
     rig.time = 0;
     rig.duration = contactBeat;

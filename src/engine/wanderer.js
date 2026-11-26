@@ -59,6 +59,7 @@ function katanaPose(age) {
       return {...blendCutPose(p,raised,lift), heldAttack:true};
     }
   }
+  if (move.link?.returnFromDraw && age >= 0 && age < move.duration) return returnCutPose(age,move);
   if (!move.link || age < 0 || age >= move.start) return baseKatanaPose(age);
   return blendCutPose(move.link.pose,baseKatanaPose(move.start),ease(age/move.start));
 }
@@ -115,6 +116,33 @@ function steppingDraw(age, move) {
 }
 function sheathTravel() {
   return Math.min(weapon.length*.49,Math.max(0,weapon.length-30));
+}
+function returnCutPose(age, move) {
+  const origin = move.link.pose;
+  const {start,end,duration,entry} = move;
+  const gather = ease(age/start);
+  const sweep = ease((age-start*.45)/(end-start*.45));
+  const settle = ease((age-end)/(duration-end));
+  const plant = ease((age-entry.landAt*.76)/(end-entry.landAt*.76));
+  const through = (from,to,rest,t)=>mix(mix(from,to,t),rest,settle);
+  const shift = through(origin.shift,8,0,plant);
+  const lateral = through(origin.lateral,entry.leadSide*4.8,0,plant);
+  const drop = through(origin.drop,5,0,plant);
+  // Bring the hilt within reach of the left hand as the free foot advances.
+  // Both hands then carry it across the body on the same descending arc.
+  const grip = blend3(origin.tsuba,[25,9,64-10*move.lowAim],gather);
+  const hand = blend3(grip,[22+shift,-14+lateral,53-14*move.lowAim],sweep);
+  const mouth = [9+.82*shift,-14+lateral,51-drop];
+  return {
+    ...origin, heldAttack:false, exposed:1, reach:1, carryReady:mix(origin.carryReady,1,settle),
+    mouth:blend3(origin.mouth,mouth,gather), tsuba:blend3(hand,[19,2,57],settle),
+    sheathHold:origin.sheathHold*(1-gather), supportGrip:mix(origin.supportGrip,1,gather),
+    yaw:through(origin.yaw,-1.52,.16,sweep),
+    pitch:through(origin.pitch,-.38-.27*move.lowAim,.67,sweep),
+    coil:through(origin.coil,-.46,0,sweep), shift, lateral, drop,
+    load:mix(origin.load,1,gather)*(1-settle), shrug:origin.shrug*(1-sweep),
+    turn:mix(origin.turn,1,sweep)*(1-settle),
+  };
 }
 function baseKatanaPose(age) {
   const move = cut(),
