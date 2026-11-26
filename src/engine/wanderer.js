@@ -1,4 +1,4 @@
-import { parryTiming } from "./combat-timing.js";
+import { parryTiming, riposteWindow } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { cut, run, depthRatio } from "./journey.js";
 import { impactTilt, roadZ } from "./world3d.js";
@@ -26,13 +26,31 @@ const lightArcs = [
   {high: 45, low: 72, fromPitch: -0.66, toPitch: 0.55},
   {high: 61, low: 58, fromPitch: 0.07, toPitch: -0.12},
 ];
+// The sweep sampler and the renderer interpolate from the same contact-time pose.
+function ripostePose(age, move) {
+  const {originPose: p, side, low} = move.riposte;
+  const drive = ease(age / move.end);
+  const settle = ease((age - move.end) / (move.duration - move.end));
+  const channel = (from, through, rest) => mix(mix(from, through, drive), rest, settle);
+  const grip = blend3(blend3(p.tsuba, [36, -side * 6, low ? 46 : 62], drive), [19, 2, 57], settle);
+  return {
+    ...p, tsuba: grip,
+    yaw: channel(p.yaw, -.16 * side, .16),
+    pitch: channel(p.pitch, low ? -.44 : -.16, .67),
+    coil: channel(p.coil, -.32 * side, 0),
+    shift: channel(p.shift, 7, 0), lateral: channel(p.lateral, -side * 2, 0),
+    shrug: channel(p.shrug, 0, 0), drop: channel(p.drop, low ? 9 : 4, 0),
+    supportGrip: channel(p.supportGrip, weapon.grip >= 11 ? 1 : 0, weapon.grip >= 11 ? 1 : 0)
+  };
+}
 function katanaPose(age) {
   const move = cut(),
     midCut = age >= 0 && age < move.duration;
+  if (midCut && move.riposte) return ripostePose(age, move);
   const parryAge = run.phase - run.guardAt;
   const sinceContact = run.phase - run.deflectedAt;
   const blocking = run.guardAt > run.rollAt && !midCut &&
-    (parryAge < parryTiming.recover || sinceContact < .34);
+    (parryAge < parryTiming.recover || sinceContact < riposteWindow);
   const transition = clamp01((run.phase - run.bladeChanged) / 0.48);
   const carry = run.bladeOut ? transition : 1 - transition;
   const readyHand = [19, 2, 57],
@@ -133,8 +151,8 @@ function katanaPose(age) {
     reach = Math.max(reach, guard);
     yaw = mix(yaw, -0.9, guard);
     pitch = mix(pitch, 1, guard);
-    if (sinceContact >= 0 && sinceContact < .34) {
-      const beat = ease(sinceContact / .115) * (1 - ease((sinceContact - .115) / .225));
+    if (sinceContact >= 0 && sinceContact < riposteWindow) {
+      const beat = ease(sinceContact / .115) * (1 - ease((sinceContact - .76) / (riposteWindow - .76)));
       const side = run.deflectSide;
       hand = blend3(hand, [27, 15 * side, 66], beat);
       yaw += 1.35 * side * beat;

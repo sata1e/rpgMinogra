@@ -1,5 +1,5 @@
 import { attackPhases } from "./enemy-attacks.js";
-import { rollDuration, parryTiming } from "./combat-timing.js";
+import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import {
   clamp01,
@@ -1315,12 +1315,16 @@ function impactTilt(actor, pivot) {
       pivot: 0,
     };
   }
-  const r = actor.recoil,
-    angle = r && Math.hypot(r.x, r.z);
+  const age = run.phase - (actor.deflectedAt ?? -10);
+  const stagger = age >= 0 && age < riposteWindow
+    ? ease(age / .14) * (1 - ease((age - .48) / (riposteWindow - .48))) : 0;
+  const leanX = (actor.recoil?.x || 0) + .36 * stagger * (actor.staggerX || 0);
+  const leanZ = (actor.recoil?.z || 0) + .36 * stagger * (actor.staggerZ || 0);
+  const angle = Math.hypot(leanX, leanZ);
   return angle
     ? {
-        nx: r.x / angle,
-        nz: r.z / angle,
+        nx: leanX / angle,
+        nz: leanZ / angle,
         sin: Math.sin(angle),
         cos: Math.cos(angle),
         pivot,
@@ -1368,7 +1372,8 @@ function demon(d) {
     const distance = Math.hypot(dx, dz);
     const guarding = winding && run.deflectedAt < run.guardAt && guardAge >= 0 && guardAge < parryTiming.close &&
       distance < enemies[d.kind].range + 20 && dx * run.heading.x + dz * run.heading.y >= .5 * distance;
-    const bind = contactAge < .22 && d.deflectedAt === run.deflectedAt
+    const answering = cut().riposte?.target === d && run.phase - run.attackAt < cut().duration;
+    const bind = !answering && contactAge < .22 && d.deflectedAt === run.deflectedAt
       ? 1 - ease((contactAge - .09) / .13)
       : guarding ? strike * ease(guardAge / parryTiming.open) : 0;
     const boss = d.type === 3;

@@ -1,4 +1,4 @@
-import { rollDuration, rollCost, chargeDuration, parryTiming } from "./combat-timing.js";
+import { rollDuration, rollCost, chargeDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { W } from "./config.js";
 import { view, resetMouse } from "./game.js";
@@ -270,6 +270,7 @@ function toggleBlade() {
   )
     return;
   run.cleanAt = -10;
+  riposteUntil = -10;
   run.bladeOut = !run.bladeOut;
   run.bladeChanged = run.phase;
   ping(run.bladeOut ? 440 : 250);
@@ -285,6 +286,32 @@ function drawSword() {
     run.phase - run.guardAt < parryTiming.recover && run.phase >= riposteUntil
   )
     return;
+  if (riposteTarget?.hp > 0 && run.phase < riposteUntil) {
+    const target = riposteTarget;
+    const originPose = katanaPose(run.phase - run.attackAt);
+    const tempo = .86 + .14 * weapon.tempo;
+    activeCut = {
+      duration: .34 * tempo, start: .035 * tempo, end: .175 * tempo,
+      step: 20, damage: 1, cost: 0,
+      riposte: { target, originPose, side: run.deflectSide, low: target.type === 0 }
+    };
+    strikeStartYaw = Math.atan2(run.heading.y, run.heading.x);
+    const yaw = Math.atan2((target.y - run.depth) / depthRatio, target.x - run.pos);
+    strikeTurn = Math.atan2(Math.sin(yaw - strikeStartYaw), Math.cos(yaw - strikeStartYaw));
+    run.attackDir = { ...run.heading };
+    run.fromSheath = false;
+    run.combo = 0;
+    run.attackAt = run.phase;
+    run.guardAt = -10;
+    run.cleanAt = -10;
+    run.spent = false;
+    struck.clear();
+    riposteUntil = -10;
+    riposteTarget = null;
+    feedbackUntil = 0;
+    ping(310);
+    return;
+  }
   run.windAt = run.phase;
 }
 function whisper(message) {
@@ -304,6 +331,7 @@ function parry() {
   run.cleanAt = -10;
   run.windAt = null;
   run.attackAt = -10;
+  riposteUntil = -10;
   parryUsed = false;
   run.deflectedAt = -10;
   run.bladeOut = true;
@@ -478,6 +506,7 @@ function roll() {
     return;
   run.windAt = null;
   run.attackAt = -10;
+  riposteUntil = -10;
   spirit -= rollCost;
   run.rollAt = run.phase;
   run.cleanAt = -10;
@@ -709,7 +738,7 @@ function update(dt) {
     if (contact) {
       struck.add(d);
       if (run.combo === 1) run.spent = true;
-      const counter = d === riposteTarget && run.phase < riposteUntil;
+      const counter = d === cut().riposte?.target;
       const blocked =
         difficulty !== difficulties.easy &&
         d.type === 2 &&
@@ -725,7 +754,7 @@ function update(dt) {
         const damage = (counter ? 3 : cut().damage) * difficulty.outgoing;
         d.hp = Math.max(0, d.hp - damage);
         d.flash = run.phase;
-        if (counter) riposteUntil = -10;
+        if (counter) run.spent = true;
         // Compare the same point along the blade in adjacent sweep samples.
         const i = contact.i,
           t = contact.t;
@@ -795,14 +824,17 @@ function update(dt) {
             dy - run.heading.x * run.deflectSide * 18, 84);
           d.wind = -10;
           d.chain = 0;
-          d.exposed = run.phase + 1.1;
+          d.staggerX = dx / (dist || 1);
+          d.staggerZ = dy / (dist || 1);
+          d.exposed = run.phase + riposteWindow;
           d.ready = d.exposed;
           d.stunned = d.exposed;
           riposteTarget = d;
           parryUsed = true;
           spirit = Math.min(100, spirit + 14);
-          riposteUntil = run.phase + 0.88;
-          whisper("Парирование · ответьте ударом");
+          riposteUntil = d.exposed;
+          whisper("ЛКМ · контратака");
+          feedbackUntil = riposteUntil;
           ping(780);
           continue;
         }
@@ -824,6 +856,7 @@ function update(dt) {
           bodyImpact(heroMotion, -dx, -dy, traits.damage * 4 + 55);
           run.windAt = null;
           run.spent = true;
+          riposteUntil = -10;
           hurtAt = run.phase;
           ping(88);
           if (!health) {
