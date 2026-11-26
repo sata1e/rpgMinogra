@@ -1,4 +1,3 @@
-import { displayedYaw } from "./game.js";
 import {
   clamp01,
   mix,
@@ -1329,8 +1328,8 @@ let focus;
 let aspectX;
 let aspectY;
 function camera() {
-  const cy = Math.cos(displayedYaw()),
-    sy = Math.sin(displayedYaw()),
+  const cy = Math.cos(view.cameraYaw),
+    sy = Math.sin(view.cameraYaw),
     cp = Math.cos(view.cameraPitch),
     sp = Math.sin(view.cameraPitch);
   right = [cy, 0, -sy];
@@ -2006,7 +2005,7 @@ function renderWorld() {
   camera();
   const key = [
     ...scene.eye,
-    displayedYaw(),
+    view.cameraYaw,
     view.cameraPitch,
     view.cameraRange,
   ].join("/");

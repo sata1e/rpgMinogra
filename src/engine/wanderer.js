@@ -19,6 +19,11 @@ const bladeAxis = (yaw, pitch) => [
   Math.sin(yaw) * Math.cos(pitch),
   Math.sin(pitch),
 ];
+const lightArcs = [
+  {high: 74, low: 48, fromPitch: 0.62, toPitch: -0.48},
+  {high: 45, low: 72, fromPitch: -0.66, toPitch: 0.55},
+  {high: 61, low: 58, fromPitch: 0.07, toPitch: -0.12},
+];
 function katanaPose(age) {
   const move = cut(),
     midCut = age >= 0 && age < move.duration;
@@ -51,7 +56,7 @@ function katanaPose(age) {
     const transfer = ease((age - move.start + 0.045) / (move.end - move.start));
     load = prepare * (1 - recover);
     shift = load * mix(run.combo ? -6 : -3, run.combo ? 8 : 5, transfer);
-    lateral = load * mix(-3.4, 3.4, transfer);
+    lateral = side * load * mix(-3.4, 3.4, transfer);
     shrug = load * (run.combo ? 5 : 2) * (1 - impact);
     turn = impact * (1 - recover);
     drop = load * ((run.combo ? 5 : 3) + 2 * impact);
@@ -82,23 +87,24 @@ function katanaPose(age) {
     const edge = ease((age - move.start - 0.012) / (move.end - move.start));
     let arcHand, arcYaw, arcPitch;
     if (run.combo) {
-      // Side-view arc of the grip around the moving shoulder line.
-      const armAngle = mix(1.55, -0.88, strike);
+      const sweep = side * mix(-1.45, 1.42, strike);
       arcHand = [
-        5 + shift + 28 * Math.cos(armAngle),
-        2 + lateral + side * 2 * Math.sin(Math.PI * strike),
-        75 - drop + shrug + 28 * Math.sin(armAngle),
+        5 + shift + 24 * Math.cos(sweep),
+        lateral + 21 * Math.sin(sweep),
+        78 - drop + shrug - 27 * strike + 5 * Math.sin(Math.PI * strike),
       ];
-      arcYaw = side * 0.12;
-      arcPitch = mix(3.86, -0.41, edge);
+      arcYaw = side * mix(-2.25, 2.08, edge);
+      arcPitch = mix(0.85, -0.55, edge);
     } else {
+      // Each row defines grip height and edge pitch at the two ends of the cut.
+      const profile = lightArcs[run.fromSheath ? 0 : run.lightVariant];
       arcHand = [
         5 + shift + 18 * Math.cos(handAngle),
         lateral + 18 * Math.sin(handAngle),
-        mix(71, 49, strike),
+        mix(profile.high, profile.low, strike) - drop + shrug,
       ];
       arcYaw = side * mix(-1.72, 1.48, edge);
-      arcPitch = mix(0.3, -0.46, edge);
+      arcPitch = mix(profile.fromPitch, profile.toPitch, edge);
     }
     hand = blend3(blend3(hand, arcHand, wind), readyHand, settle);
     yaw = mix(mix(yaw, arcYaw, wind), 0.16, settle);
@@ -203,6 +209,7 @@ function bladeSweep(age, dt, oldX, oldY, previousAim = run.attackDir) {
     );
     edges.push([w.guard, w.middle], [w.middle, w.tip]);
   }
+  edges.sampleTime = (to - from) / steps;
   return edges;
 }
 function edgeHits([a, b], d) {

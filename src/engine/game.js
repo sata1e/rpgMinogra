@@ -23,12 +23,6 @@ const canvas = document.querySelector("#world"),
 view.cameraYaw = -0.48;
 view.cameraPitch = 0.19;
 view.cameraRange = 276;
-view.inspectOffset = 0;
-let inspecting = false;
-function displayedYaw() {
-  return view.cameraYaw + view.inspectOffset;
-}
-let mouseCharge = false;
 view.mouseLook = false;
 let hadLock = false;
 function startMouseLook() {
@@ -40,9 +34,6 @@ function startMouseLook() {
   } catch {}
 }
 function resetMouse() {
-  inspecting = false;
-  view.inspectOffset = 0;
-  mouseCharge = false;
   if (document.pointerLockElement === canvas) document.exitPointerLock();
 }
 function resumeGame() {
@@ -77,31 +68,14 @@ function bindControls() {
   canvas.oncontextmenu = (e) => e.preventDefault();
   canvas.onauxclick = (e) => e.preventDefault();
   canvas.onmousedown = (e) => {
-    if (!run.paused && e.button === 2) {
-      e.preventDefault();
-      view.mouseLook = true;
-      inspecting = true;
-      return;
-    }
-    if (run.paused || e.button !== 0 || run.windAt !== null) return;
+    if (run.paused || (e.button !== 0 && e.button !== 2) || run.windAt !== null) return;
     e.preventDefault();
+    view.mouseLook = true;
     drawSword();
-    mouseCharge = run.windAt !== null;
+    attack(e.button === 2 ? 1 : 0);
   };
-  window.addEventListener("mouseup", (e) => {
-    if (e.button === 2) inspecting = false;
-    if (e.button === 0 && mouseCharge) {
-      mouseCharge = false;
-      if (!run.paused) attack();
-    }
-  });
   function orbit(dx, dy) {
-    if (inspecting) {
-      const offset = view.inspectOffset - dx * 0.0045;
-      view.inspectOffset = Math.atan2(Math.sin(offset), Math.cos(offset));
-    } else {
-      view.cameraYaw -= dx * 0.0045;
-    }
+    view.cameraYaw -= dx * 0.0045;
     view.cameraPitch = Math.max(
       0.14,
       Math.min(0.7, view.cameraPitch + dy * 0.003),
@@ -212,14 +186,10 @@ function frame(now) {
     }
   }
   if (!run.paused) {
-    if (!inspecting && view.inspectOffset !== 0) {
-      view.inspectOffset *= Math.exp(-12 * dt);
-      if (Math.abs(view.inspectOffset) < 0.001) view.inspectOffset = 0;
-    }
     renderWorld();
     drawMap();
   }
   requestAnimationFrame(frame);
 }
 
-export { displayedYaw, view, resetMouse, canvas, ctx, bindControls, frame };
+export { view, resetMouse, canvas, ctx, bindControls, frame };

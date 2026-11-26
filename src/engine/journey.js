@@ -1,4 +1,3 @@
-import { displayedYaw } from "./game.js";
 import { W } from "./config.js";
 import { view, resetMouse } from "./game.js";
 import {
@@ -220,13 +219,16 @@ const enemies = [
   },
 ];
 run.windAt = null;
-let releaseLift = 0;
+run.lightVariant = 0;
+let nextLight = 0;
+let strikeStartYaw = 0;
+let strikeTurn = 0;
 const struck = new Set();
 run.opponent = null;
 function combatFacing(fallback) {
   if (view.mouseLook) {
     run.opponent = null;
-    return { x: -Math.sin(view.cameraYaw), y: -Math.cos(view.cameraYaw) };
+    return fallback;
   }
   const eligible = (d) => d.hp > 0 && activeGuard(d);
   if (
@@ -389,8 +391,8 @@ function ui() {
   const wx = target - run.pos,
     wz = (targetY - run.depth) / depthRatio;
   const horizontal =
-      wx * Math.cos(displayedYaw()) - wz * Math.sin(displayedYaw()),
-    vertical = wx * Math.sin(displayedYaw()) + wz * Math.cos(displayedYaw());
+      wx * Math.cos(view.cameraYaw) - wz * Math.sin(view.cameraYaw),
+    vertical = wx * Math.sin(view.cameraYaw) + wz * Math.cos(view.cameraYaw);
   const arrow = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"][
     (Math.round((Math.atan2(vertical, horizontal) * 4) / Math.PI) + 8) % 8
   ];
@@ -410,13 +412,12 @@ function interact() {
   ringNearbyBell();
   ui();
 }
-function attack() {
+function attack(requestedStyle) {
   if (run.windAt === null) return;
   const held = run.phase - run.windAt;
-  releaseLift = Math.min(1, held / 0.48);
   run.windAt = null;
   if (run.paused) return;
-  const style = held >= 0.48 ? 1 : 0;
+  const style = requestedStyle ?? (held >= 0.48 ? 1 : 0);
   if (spirit < cuts[style].cost) {
     whisper("Дайте дыханию восстановиться");
     return;
@@ -427,10 +428,19 @@ function attack() {
   run.slashSide = -run.slashSide;
   run.cleanAt = -10;
   run.combo = style;
+  if (!style) {
+    run.lightVariant = nextLight;
+    nextLight = (nextLight + 1) % 3;
+  }
   struck.clear();
   spirit -= cut().cost;
-  run.attackDir = combatFacing(run.heading);
-  run.heading = run.attackDir;
+  const target = view.mouseLook
+    ? { x: -Math.sin(view.cameraYaw), y: -Math.cos(view.cameraYaw) }
+    : combatFacing(run.heading);
+  strikeStartYaw = Math.atan2(run.heading.y, run.heading.x);
+  const delta = Math.atan2(target.y, target.x) - strikeStartYaw;
+  strikeTurn = Math.atan2(Math.sin(delta), Math.cos(delta));
+  run.attackDir = { ...run.heading };
   attackFace = Math.sign(run.attackDir.x) || face;
   run.attackAt = run.phase;
   run.spent = false;
@@ -605,9 +615,14 @@ function update(dt) {
   const travel = movementInput();
   const norm = travel.x !== 0 || travel.y !== 0;
   const previousAim = run.attackDir;
-  run.heading = combatFacing(norm && !dash && !swing ? travel : run.heading);
+  const attackAge = run.phase - run.attackAt;
+  if (attackAge < cut().duration) {
+    const yaw = strikeStartYaw + strikeTurn * ease(attackAge / cut().start);
+    run.heading = run.attackDir = { x: Math.cos(yaw), y: Math.sin(yaw) };
+  } else {
+    run.heading = combatFacing(norm && !dash ? travel : run.heading);
+  }
   face = Math.sign(run.heading.x) || face;
-  if (run.phase - run.attackAt < cut().duration) run.attackDir = run.heading;
   const direction = dash ? dashDir : swing ? run.attackDir : travel;
   const age = run.phase - run.attackAt;
   const push = swing
@@ -697,7 +712,10 @@ function update(dt) {
         const travel = Math.hypot(sx, sz) || 1;
         const pushX = run.attackDir.x * 0.74 + (0.55 * sx) / travel,
           pushZ = run.attackDir.y * 0.74 + (0.55 * sz) / travel;
-        const force =
+        const verticalTravel = mix(later[0].z - earlier[0].z, later[1].z - earlier[1].z, t);
+        const speed = Math.hypot(sx, sz, verticalTravel) / Math.max(0.0001, sweep.sampleTime);
+        const momentum = 0.55 + 0.65 * Math.min(1, speed / 820);
+        const force = momentum *
           (counter ? 320 : run.combo === 1 ? 275 : 150) * bodySizes[d.type][1];
         impactFx(d, contact, pushX, pushZ);
         bodyImpact(d, pushX, pushZ, force);
