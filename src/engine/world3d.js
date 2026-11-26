@@ -1471,7 +1471,7 @@ function demon(d) {
   place(d.x, roadZ(d.y), demonFacing(d));
   const {winding, lift, strike, recover, load, snap} = demonAttackPose(d);
   const start = scene.faces.length;
-  if (d.type === 0) houndModel(d, load, snap, fall);
+  if (d.type === 0) houndModel(d, load, snap, fall, winding && combatOpponent(d) ? addSightSegment : null);
   else if (d.type === 1) mournerModel(d, load, fall);
   else {
     const contactAge = run.phase - (d.deflectedAt ?? -10);
@@ -1650,17 +1650,17 @@ function advanceFades(now, rebuilt) {
 // little influence. Keep fighters separate when measuring the covered fraction.
 const sightBodies = [];
 const bodyRows = [[.17,.54,3,.22], [.43,.79,4,.32], [.69,1,5,1.5], [.89,.48,3,1.25]];
-function addAttackSight(elbow, hand, tip) {
-  // These are the actual world-space joints of the attacking arm, after
-  // animation, weapon binding, body tilt and the boss's scale.
-  for (const [a,b,importance] of [[elbow,hand,.78],[hand,tip,.94]]) {
-    const points = [];
-    for (const t of [0,.25,.5,.75,1]) {
-      const p = blend3(a,b,t);
-      if (actorVisible(...p,0)) points.push([...p,1]);
-    }
-    if (points.length) sightBodies.push({points,total:5,importance});
+function addSightSegment(a, b, importance) {
+  const points = [];
+  for (const t of [0, .25, .5, .75, 1]) {
+    const p = blend3(a, b, t);
+    if (actorVisible(...p, 0)) points.push([...p, 1]);
   }
+  if (points.length) sightBodies.push({points, total: 5, importance});
+}
+function addAttackSight(elbow, hand, tip) {
+  addSightSegment(elbow, hand, .78);
+  addSightSegment(hand, tip, .94);
 }
 function addSightBody(x,z,height,width,tilt,scale,enemy = false) {
   const points = [], floor = groundHeight(x,z);

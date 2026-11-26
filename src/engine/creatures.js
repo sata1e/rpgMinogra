@@ -98,9 +98,12 @@ function fallingFoot(d, index, pattern, fall) {
   return [foot[0] + (pattern[index][0] - foot[0]) * blend,
     foot[1] * (1 - blend), foot[2] + (pattern[index][1] - foot[2]) * blend];
 }
-function houndModel(d, load, snap, fall) {
+function houndModel(d, load, snap, fall, sampleLunge) {
   const h = houndBackHeight(d, load, snap);
   const chest = fall ? 6 * fall.brace * Math.min(1, fall.rise * 4) : 0;
+  if (sampleLunge) {
+    sampleLunge(worldPoint([26, h + chest + 15, 0]), worldPoint([42, h + chest + 11, 0]), .94);
+  }
   // Pelvis, tucked belly, deep rib cage, withers and sloping neck.
   sculpt(
     [
@@ -144,6 +147,9 @@ function houndModel(d, load, snap, fall) {
         ],
         4,
       );
+      if (front && sampleLunge) {
+        sampleLunge(worldPoint([toe - 1, 9 + lift, z]), worldPoint([toe + 7, 1 + lift, z]), .78);
+      }
       ovalMesh(toe + 2, 3 + lift, z, 5, 2.6, 3.4, 1);
       for (const k of [-1, 1])
         sculpt(
