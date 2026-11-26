@@ -1,5 +1,8 @@
 interface TelegramApp {
   platform: string;
+  isFullscreen: boolean;
+  requestFullscreen(): void;
+  exitFullscreen(): void;
   ready(): void;
   expand(): void;
   isVersionAtLeast(version: string): boolean;
@@ -34,6 +37,9 @@ export async function connectTelegram(pause: () => void) {
   }
   const app = window.Telegram?.WebApp;
   if (!app || app.platform === "unknown") return;
+  if (app.isVersionAtLeast("8.0")) {
+    app.onEvent("fullscreenChanged", () => document.dispatchEvent(new Event("game:fullscreen")));
+  }
   app.ready();
   app.expand();
   if (app.isVersionAtLeast("7.7")) app.disableVerticalSwipes();

@@ -214,3 +214,21 @@ button {
     top: 55px;
   }
 }
+
+/* Keep the scene and input controls together when the viewport expands. */
+.playing-fullscreen body {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.playing-fullscreen header { flex: none; }
+.playing-fullscreen main {
+  width: 100%; min-height: 0; flex: 1;
+  display: flex; flex-direction: column;
+}
+.playing-fullscreen .title, .playing-fullscreen .below,
+.playing-fullscreen footer { display: none; }
+.playing-fullscreen #scene { flex: 1; min-height: 0; height: auto; }
+.playing-fullscreen .touch { flex-shrink: 0; }

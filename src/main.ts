@@ -1,3 +1,4 @@
+import { bindFullscreen } from "./ui/fullscreen";
 import "./ui/game.css";
 import "./ui/mini-app.css";
 import { bindControls, frame, pauseGame } from "./engine/game.js";
@@ -7,6 +8,7 @@ import { buildScenery } from "./engine/world3d.js";
 import { resetScenery } from "./engine/valley.js";
 import { connectTelegram } from "./platform/telegram";
 
+bindFullscreen();
 resetScenery();
 buildScenery();
 spawnGuards();
