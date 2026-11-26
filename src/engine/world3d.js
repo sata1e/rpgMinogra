@@ -145,10 +145,15 @@ function place(x, z, rot = 0, scale = 1, base = groundHeight(x,z)) {
   orientation = rot;
   scene.unit = scale;
 }
-let groundPose = null;
+let groundPose = null, shoePitch = null;
 let bodyTilt = null,
   torsoPose = null;
 function worldPoint([x, y, z]) {
+  if (shoePitch) {
+    const f=x-shoePitch.x, h=y-shoePitch.y;
+    x=shoePitch.x+f*shoePitch.cos-h*shoePitch.sin;
+    y=shoePitch.y+f*shoePitch.sin+h*shoePitch.cos;
+  }
   if (bodyTilt?.fall) y = loweredHeight(y, bodyTilt.fall);
   if (torsoPose) {
     const blend = clamp01((y - 48 + torsoPose.drop) / 30);
@@ -317,7 +322,7 @@ function model(x, z, draw, r = 170, scale = 1) {
     step ? simplifyMesh(full, step) : full,
   );
   meshes.push({
-    center,
+    lo, hi, center,
     radius: Math.hypot(hi[0] - center[0], hi[1] - center[1], hi[2] - center[2]),
     levels,
   });
@@ -1146,13 +1151,20 @@ function ronin() {
     }
     p.mouth[2] -= 25 * tuck;
   }
-  const feet = heroMotion.feet?.feet;
-  if (feet && !groundPose && age >= cut().duration && run.phase-run.guardAt > .5 && run.windAt === null) {
-    const transfer = (feet[0].h-feet[1].h) * motion.stride;
-    p.lateral += transfer * .33;
-    p.coil += transfer * .014;
-    p.drop += 1.8 * motion.stride - Math.abs(transfer) * .18;
-    p.tsuba = [p.tsuba[0]-transfer*.28, p.tsuba[1]+transfer*.15,p.tsuba[2]-p.drop];
+  const rig = heroMotion.feet;
+  const walking = rig && !groundPose && age >= cut().duration &&
+    run.phase-run.guardAt > .5 && run.windAt === null ? motion.stride : 0;
+  let counterSwing=0;
+  if (walking) {
+    const left=localFoot(heroMotion,0,humanFeet)[0]-humanFeet[0][0];
+    const right=localFoot(heroMotion,1,humanFeet)[0]-humanFeet[1][0];
+    counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking;
+    const transfer=(rig.feet[0].h-rig.feet[1].h)*walking;
+    p.lateral+=transfer*.22;
+    p.coil+=counterSwing*.13;
+    p.shift+=1.5*walking;
+    p.drop+=walking*(1.3+Math.abs(counterSwing)*1.1);
+    p.tsuba=[p.tsuba[0]+counterSwing*2,p.tsuba[1]+walking*2,p.tsuba[2]-p.drop];
   }
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
@@ -1160,7 +1172,7 @@ function ronin() {
     drop = p.drop;
   const footLift =
     heroMotion.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0;
-  const sway = Math.sin(run.phase * 2.4) * 0.55 + footLift * 0.18;
+  const sway = Math.sin(run.phase * 2.4) * 0.55 + footLift * 0.07;
   place(
     run.pos,
     roadZ(run.depth),
@@ -1193,6 +1205,17 @@ function ronin() {
       23,
       [1, 0, sign * 0.12],
     );
+    if (walking) {
+      const swing=rig.group===(sign<0 ? 0 : 1);
+      const progress=rig.time/rig.duration;
+      const forwardStep=rig.feet[rig.group];
+      const along=(forwardStep.toX-forwardStep.fromX)*Math.cos(rig.angle)+
+        (forwardStep.toZ-forwardStep.fromZ)*Math.sin(rig.angle);
+      const pitch=Number.isFinite(along) ? Math.tanh(along/20)*walking*(swing ?
+        -.24*Math.sin(2*Math.PI*progress)+.13*ease((progress-.65)/.35) :
+        .13*(1-ease(progress/.27))-.10*ease((progress-.74)/.26)) : 0;
+      shoePitch={x:foot+(pitch>0?-4:5), y:lift+.5, cos:Math.cos(pitch), sin:Math.sin(pitch)};
+    }
     ovalMesh(foot + 1, lift + 2.6, footZ, 7.4, 3, 3.8, 30);
     for (const side of [-1, 1])
       rod(
@@ -1202,6 +1225,7 @@ function ronin() {
         29,
         true,
       );
+    shoePitch=null;
     const shin = [ankle, 5 + lift, footZ],
       leg = (t, r) => [...blend3(shin, knee, t), r, r * 0.94];
     sculpt([leg(0, 3.1), leg(0.53, 4.6), leg(1, 4.2)], 30, 12);
@@ -1292,9 +1316,7 @@ function ronin() {
   if (groundPose) groundPose.chin = null;
   torsoPose = null;
   const reach = p.reach;
-  const walkSwing =
-    heroMotion.feet?.feet[0].h - (heroMotion.feet?.feet[1].h || 0) || 0;
-  const armSwing = walkSwing * motion.stride * (1 - reach) * 0.78;
+  const armSwing=counterSwing*8;
   const wrist = blend3(
     [shoulder + 11 + armSwing, 52 - drop, 14],
     point(v.grip),
@@ -1507,19 +1529,34 @@ function project(v, out = [0, 0, 0]) {
   out[2] = 1 / d;
   return out;
 }
-// Screen-door transparency keeps the silhouette legible in the indexed pixel renderer.
-const screenDoor = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
-let sceneryPass = false;
-const sight = {};
+// Intersect the camera-to-body segments with the bounds of a complete prop.
+let veilObject = false, veilDepth, veilColor;
+const sightPoints = [];
 function updateSight() {
-  const z=roadZ(run.depth), floor=groundHeight(run.pos,z);
-  const foot=project([run.pos,floor,z]), head=project([run.pos,floor+102,z]);
-  sight.x=(head[0]+foot[0])*.5;
-  sight.y=(head[1]+foot[1])*.5;
-  const scale=aspectY*Math.max(head[2],foot[2]);
-  sight.rx=Math.max(1,scale*(run.fall || run.phase-run.rollAt<rollDuration ? 83 : 55));
-  sight.ry=Math.max(1,scale*83);
-  sight.depth=Math.min(head[2],foot[2]);
+  const z = roadZ(run.depth), floor = groundHeight(run.pos,z);
+  const low = run.fall || run.phase-run.rollAt < rollDuration;
+  sightPoints.length = 0;
+  for (const height of (low ? [9,36] : [16,54,94])) {
+    sightPoints.push([run.pos,floor+height,z]);
+  }
+}
+function blocksView(lo,hi) {
+  return sightPoints.some(target => {
+    let enter = 0, leave = .985;
+    for (let axis=0; axis<3; axis++) {
+      const origin=scene.eye[axis], delta=target[axis]-origin;
+      const min=lo[axis]-6, max=hi[axis]+6;
+      if (Math.abs(delta)<.0001) {
+        if (origin<min || origin>max) return false;
+      } else {
+        const a=(min-origin)/delta, b=(max-origin)/delta;
+        enter=Math.max(enter,Math.min(a,b));
+        leave=Math.min(leave,Math.max(a,b));
+        if (enter>leave) return false;
+      }
+    }
+    return true;
+  });
 }
 function raster(a, b, c, m, l, f) {
   const minX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))),
@@ -1538,10 +1575,7 @@ function raster(a, b, c, m, l, f) {
   const inv = 1 / den,
     du = cy * inv,
     dv = -by * inv;
-  const fade = sceneryPass && !mirrorPass && Math.max(a[2],b[2],c[2]) > sight.depth &&
-    maxX>sight.x-sight.rx && minX<sight.x+sight.rx && maxY>sight.y-sight.ry && minY<sight.y+sight.ry;
   for (let y = minY; y <= maxY; y++) {
-    const sy=fade ? ((y-sight.y)/sight.ry)**2 : 0;
     let u = ((minX + 0.5 - ax) * cy - (y + 0.5 - ay) * cx) * inv,
       v = ((y + 0.5 - ay) * bx - (minX + 0.5 - ax) * by) * inv;
     for (let x = minX; x <= maxX; x++, u += du, v += dv) {
@@ -1549,10 +1583,12 @@ function raster(a, b, c, m, l, f) {
       const z = a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]),
         i = y * cols + x;
       if (z <= depths[i]) continue;
-      if (fade && z > sight.depth) {
-        const radius = sy + ((x-sight.x)/sight.rx)**2;
-        const opacity = Math.max(2, (radius-.54)*30+2);
-        if (screenDoor[(x&3)+4*(y&3)] >= opacity) continue;
+      if (veilObject) {
+        if (z > veilDepth[i]) {
+          veilDepth[i] = z;
+          veilColor[i] = colours[m][Math.min(31, 5 + l*3)];
+        }
+        continue;
       }
       depths[i] = z;
       materials[i] = m;
@@ -1633,6 +1669,7 @@ function drawScenery() {
       Math.abs(x * up[0] + y * up[1] + z * up[2]) > halfY * d + sideY * r
     )
       continue;
+    veilObject = !mirrorPass && blocksView(mesh.lo,mesh.hi);
     const footprint = Math.max(0, d - r) / aspectY;
     const level =
       footprint > 16
@@ -1679,6 +1716,7 @@ function drawScenery() {
         );
     }
   }
+  veilObject = false;
 }
 let waterVisible = false;
 function landscape() {
@@ -1803,6 +1841,13 @@ function shadows(x, z, rx, rz) {
   }
   panel(rim, 0, true, -5);
 }
+function drawProp(x,z,radius,height) {
+  const base=groundHeight(x,z);
+  veilObject=blocksView([x-radius,base,z-radius],[x+radius,base+height,z+radius]);
+  drawFaces(scene.faces);
+  scene.faces=[];
+  veilObject=false;
+}
 function drawInteractives() {
   for (const b of bells) {
     if (
@@ -1833,12 +1878,15 @@ function drawInteractives() {
       14,
       true,
     );
+    drawProp(b.x,b.z,16,56);
     if (t < 0.65)
       for (let j = 0; j < 30; j++) {
         const a = (j * 2 * Math.PI) / 30,
           r = (165 * t) / 0.65;
         box(r * Math.cos(a), 2, r * Math.sin(a), 4, 2, 4, 12, true, 1);
       }
+    drawFaces(scene.faces);
+    scene.faces=[];
   }
   for (const j of jars) {
     if (
@@ -1870,6 +1918,7 @@ function drawInteractives() {
       12,
       true,
     );
+    drawProp(j.x,roadZ(j.y),15,44);
   }
   for (const s of shards) {
     place(s.x, s.z);
@@ -1887,10 +1936,10 @@ function drawInteractives() {
 function actors3d() {
   scene.faces = [];
   drawWaterRings();
-  drawInteractives();
-  sceneryPass=true;
   drawFaces(scene.faces);
-  sceneryPass=false;
+  scene.faces=[];
+  drawInteractives();
+  drawFaces(scene.faces);
   scene.faces=[];
   shadows(run.pos, roadZ(run.depth), 29, 16);
   const first = scene.faces.length;
@@ -2215,10 +2264,13 @@ function renderWorld() {
     materials = new Uint8Array(cols * rows);
     lights = new Uint8Array(cols * rows);
     fine = new Uint8Array(cols * rows);
+    veilDepth=new Float32Array(cols*rows);
+    veilColor=new Uint32Array(cols*rows);
     backdrop = [
       new Float32Array(cols * rows),
       new Uint8Array(cols * rows),
       new Uint8Array(cols * rows),
+      new Float32Array(cols*rows), new Uint32Array(cols*rows),
     ];
     backdropKey = "";
   }
@@ -2228,18 +2280,19 @@ function renderWorld() {
     ...scene.eye,
     view.cameraYaw,
     view.cameraPitch,
-    view.cameraRange, sight.rx,
+    view.cameraRange, sightPoints[0][1],
   ].join("/");
   if (key === backdropKey) {
     depths.set(backdrop[0]);
     materials.set(backdrop[1]);
     lights.set(backdrop[2]);
+    veilDepth.set(backdrop[3]); veilColor.set(backdrop[4]);
     fine.fill(0);
   } else {
     landscape();
-    sceneryPass=true;
+    veilDepth.fill(0);
     drawScenery();
-    sceneryPass=false;
+    backdrop[3].set(veilDepth); backdrop[4].set(veilColor);
     if (waterVisible) renderReflection();
     backdrop[0].set(depths);
     backdrop[1].set(materials);
@@ -2249,6 +2302,9 @@ function renderWorld() {
   actors3d();
   edgeLight();
   paintPixels();
+  for (let i=0; i<imageWords.length; i++) {
+    if (veilDepth[i]>depths[i]) imageWords[i]=blendWater(imageWords[i],veilColor[i],.13);
+  }
   ctx.putImageData(frameImage, 0, 0);
   if (!run.paused) tuneResolution(performance.now() - started);
 }

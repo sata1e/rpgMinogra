@@ -81,7 +81,7 @@ function advanceFeet(b, dt) {
       error = Math.max(error, Math.hypot(f.x - homes[i][0], f.z - homes[i][1]));
     });
     if (error < 4) return;
-    if (hero) {
+    if (hero && (braced || speed < 12 || !rig.hasStepped)) {
       // Step with the foot furthest from its next support point, including pivots.
       const lead = Math.min(0.09, 12 / Math.max(speed, 1));
       const errors = rig.feet.map((f, i) =>
@@ -92,14 +92,17 @@ function advanceFeet(b, dt) {
       );
       rig.group = errors[0] > errors[1] ? 0 : 1;
     } else rig.group = 1 - rig.group;
+    rig.hasStepped = true;
     const surface = groundKind(b.x, b.z);
-    rig.duration = hero && !braced ? [0.31, 0.285, 0.39][surface] : Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
+    rig.duration = hero && !braced ? [0.36, 0.335, 0.41][surface] : Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
     rig.time = 0;
     rig.feet.forEach((f, i) => {
       if (pattern[i][2] !== rig.group) return;
       const catchStep =
         !hero && run.phase - (actor.balanceAt ?? -10) < 0.35 ? 1.9 : 1;
-      const predict = Math.min(
+      // The landing target includes both pelvis travel during swing and the
+      // forward half of the following support phase.
+      const predict = hero && !braced ? Math.min(rig.duration * 1.46, 47 / Math.max(1, speed)) : Math.min(
         rig.duration * (hero ? 1 : 1.3) * catchStep,
         ((hero ? 16 : 30) * catchStep) / Math.max(1, speed),
       );
@@ -113,7 +116,7 @@ function advanceFeet(b, dt) {
   }
   rig.time = Math.min(rig.duration, rig.time + dt);
   const t = rig.time / rig.duration,
-    u = ease(t);
+    u = hero && !braced ? ease((t-.055)/.89) : ease(t);
   rig.feet.forEach((f, i) => {
     if (pattern[i][2] !== rig.group) return;
     f.x = mix(f.fromX, f.toX, u);
@@ -121,7 +124,7 @@ function advanceFeet(b, dt) {
     f.h =
       t === 1
         ? 0
-        : Math.sin(t * Math.PI) *
+        : Math.sin((hero && !braced ? ease(t) : t) * Math.PI) *
           Math.min(hero ? [8, 6, 12][groundKind(f.toX,f.toZ)] : 10, Math.hypot(f.toX - f.fromX, f.toZ - f.fromZ) * 0.24);
     if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
 
@@ -162,7 +165,7 @@ function localFoot(actor, i, pattern) {
   if (actor === heroMotion) {
     const hipZ = pattern[i][1],
       offset = lateral - hipZ;
-    const reach = Math.min(1, 19 / (Math.hypot(forward, offset) || 1));
+    const reach = Math.min(1, 23 / (Math.hypot(forward, offset) || 1));
     forward *= reach;
     lateral = hipZ + offset * reach;
   }
