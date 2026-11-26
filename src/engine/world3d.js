@@ -1554,7 +1554,8 @@ function project(v, out = [0, 0, 0]) {
   out[2] = 1 / d;
   return out;
 }
-// Intersect the camera-to-body segments with the bounds of a complete prop.
+// The bounds reject distant props cheaply. Only a visible surface between
+// the near plane and the ronin can make the complete prop translucent.
 let veilObject = false, veilDepth, veilColor;
 const sightPoints = [];
 function updateSight() {
@@ -1565,9 +1566,28 @@ function updateSight() {
     sightPoints.push([run.pos,floor+height,z]);
   }
 }
-function blocksView(lo,hi) {
+function intersectsFace(face, dx, dy, dz, near, far) {
+  const [a,b,c] = face;
+  const ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2];
+  const vx=c[0]-a[0], vy=c[1]-a[1], vz=c[2]-a[2];
+  const px=dy*vz-dz*vy, py=dz*vx-dx*vz, pz=dx*vy-dy*vx;
+  const det=ux*px+uy*py+uz*pz;
+  if (Math.abs(det)<1e-8) return false;
+  const ox=scene.eye[0]-a[0], oy=scene.eye[1]-a[1], oz=scene.eye[2]-a[2];
+  const u=(ox*px+oy*py+oz*pz)/det;
+  if (u<0 || u>1) return false;
+  const qx=oy*uz-oz*uy, qy=oz*ux-ox*uz, qz=ox*uy-oy*ux;
+  const v=(dx*qx+dy*qy+dz*qz)/det;
+  if (v<0 || u+v>1) return false;
+  const t=(vx*qx+vy*qy+vz*qz)/det;
+  return t>=near && t<=far;
+}
+function blocksView(lo,hi,faces) {
   return sightPoints.some(target => {
-    let enter = 0, leave = .985;
+    const dx=target[0]-scene.eye[0], dy=target[1]-scene.eye[1], dz=target[2]-scene.eye[2];
+    const depth=dx*forward[0]+dy*forward[1]+dz*forward[2];
+    if (depth<=8) return false;
+    let enter = 8/depth, leave = .985;
     for (let axis=0; axis<3; axis++) {
       const origin=scene.eye[axis], delta=target[axis]-origin;
       const min=lo[axis]-6, max=hi[axis]+6;
@@ -1580,7 +1600,7 @@ function blocksView(lo,hi) {
         if (enter>leave) return false;
       }
     }
-    return true;
+    return faces.some(face => intersectsFace(face,dx,dy,dz,enter,leave));
   });
 }
 function raster(a, b, c, m, l, f) {
@@ -1694,7 +1714,7 @@ function drawScenery() {
       Math.abs(x * up[0] + y * up[1] + z * up[2]) > halfY * d + sideY * r
     )
       continue;
-    veilObject = !mirrorPass && blocksView(mesh.lo,mesh.hi);
+    veilObject = !mirrorPass && blocksView(mesh.lo,mesh.hi,mesh.levels[0].faces);
     const footprint = Math.max(0, d - r) / aspectY;
     const level =
       footprint > 16
@@ -1868,7 +1888,7 @@ function shadows(x, z, rx, rz) {
 }
 function drawProp(x,z,radius,height) {
   const base=groundHeight(x,z);
-  veilObject=blocksView([x-radius,base,z-radius],[x+radius,base+height,z+radius]);
+  veilObject=blocksView([x-radius,base,z-radius],[x+radius,base+height,z+radius],scene.faces);
   drawFaces(scene.faces);
   scene.faces=[];
   veilObject=false;
