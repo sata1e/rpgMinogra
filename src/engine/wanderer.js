@@ -2,7 +2,7 @@ import { loweredHeight } from "./demon-fall.js";
 import { parryTiming, riposteWindow } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { cut, run, depthRatio } from "./journey.js";
-import { impactTilt, roadZ } from "./world3d.js";
+import { impactTilt, demonFacing, demonAttackPose, houndBackHeight } from "./world3d.js";
 const motion = {};
 motion.gait = 0;
 motion.stride = 0;
@@ -134,6 +134,12 @@ function katanaPose(age) {
       arcYaw = side * mix(-0.35, 0.02, strike);
       arcPitch = mix(0.22, -0.11, strike);
     }
+    // Lower the actual swing toward a short opponent, including the visible grip and edge.
+    const low = move.lowAim || 0;
+    const descend = run.combo ? strike : 1;
+    arcHand[2] -= 14 * low * descend;
+    arcPitch -= .31 * low * descend;
+    drop += 5 * low * wind * (1 - settle) * descend;
     hand = blend3(blend3(hand, arcHand, wind), readyHand, settle);
     yaw = mix(mix(yaw, arcYaw, wind), 0.16, settle);
     pitch = mix(
@@ -287,16 +293,20 @@ function swordContact(edges, d) {
   const height = [54, 100, 108, 127][d.type],
     width = [16, 13, 17, 21][d.type];
   const tilt = impactTilt(d, d.type === 0 ? 12 : 24);
-  const facing =
-    d.feet?.angle ?? Math.atan2(roadZ(run.depth) - roadZ(d.y), run.pos - d.x);
-  const zones =
-    d.type === 0
+  const facing = demonFacing(d);
+  let back = 32, chest = 0;
+  if (d.type === 0) {
+    const { load, snap } = demonAttackPose(d);
+    back = houndBackHeight(d, load, snap);
+    if (tilt?.fall) chest = 6 * tilt.fall.brace * Math.min(1, tilt.fall.rise * 4);
+  }
+  const zones = d.type === 0
       ? [
-          [0.22, 0.68, -16],
-          [0.22, 0.68, 14],
-          [0.6, 1.12, -7],
-          [0.7, 1.1, 12],
-          [0.9, 0.78, 32],
+          [.2, .47, -21, 11], [.2, .47, 14, 11],
+          [.58, .72, -22, back + 2], [.6, .64, -9, back + 1],
+          [.65, .86, 3, back + 2], [.72, .85, 14, back + 4 + chest],
+          [.84, .59, 23, back + 11 + chest], [.91, .56, 30, back + 14 + chest],
+          [.94, .37, 39, back + 10 + chest],
         ]
       : [
           [0.19, 0.77, 0],
@@ -306,13 +316,13 @@ function swordContact(edges, d) {
           [0.92, 0.75, 2],
         ];
   let earliest = null;
-  for (const [level, size, forward] of zones) {
+  for (const [level, size, forward, centerHeight] of zones) {
     const limb = level < 0.25 && d.type !== 1;
     for (const side of limb ? [-1, 1] : [0]) {
       const lateral = side * width * 0.52;
       let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
         y = forward * Math.sin(facing) + lateral * Math.cos(facing),
-        z = height * level;
+        z = centerHeight ?? height * level;
       if (tilt?.fall) z = loweredHeight(z, tilt.fall, d.type === 3 ? 1.17 : 1);
       if (tilt && z > tilt.pivot) {
         const h = z - tilt.pivot,

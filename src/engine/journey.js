@@ -492,6 +492,17 @@ function attack(requestedStyle) {
     const delta = Math.atan2(target.y, target.x) - strikeStartYaw;
     strikeTurn = Math.atan2(Math.sin(delta), Math.cos(delta));
   }
+  const yaw = strikeStartYaw + strikeTurn;
+  let nearest = weapon.length + base.step + 58;
+  activeCut.lowAim = 0;
+  for (const d of guards) {
+    if (!d.hp || !activeGuard(d)) continue;
+    const dx = d.x - run.pos, dz = (d.y - run.depth) / depthRatio;
+    const distance = Math.hypot(dx, dz);
+    if (distance >= nearest || dx * Math.cos(yaw) + dz * Math.sin(yaw) < .72 * distance) continue;
+    nearest = distance;
+    activeCut.lowAim = d.fellAt !== undefined ? 1.4 : d.type === 0 ? 1 : 0;
+  }
   run.attackDir = { ...run.heading };
   attackFace = Math.sign(run.attackDir.x) || face;
   run.attackAt = run.phase;
@@ -756,6 +767,19 @@ function update(dt) {
     previousAim,
   );
   strikePots(sweep);
+  // A heavy swing stops on its first contact, even if a farther enemy spawned first.
+  let firstTarget, firstContact;
+  if (sweep.length && run.combo === 1 && !run.spent) {
+    for (const d of guards) {
+      if (!d.hp || !activeGuard(d) || struck.has(d)) continue;
+      const hit = swordContact(sweep, d);
+      if (hit && (!firstContact || hit.i < firstContact.i ||
+          (hit.i === firstContact.i && hit.t < firstContact.t))) {
+        firstTarget = d;
+        firstContact = hit;
+      }
+    }
+  }
   for (const d of guards) {
     if (!d.hp || !activeGuard(d)) continue;
     const traits = enemies[d.kind],
@@ -764,7 +788,7 @@ function update(dt) {
       dist = Math.hypot(dx, dy);
     const contact =
       !run.spent && !struck.has(d) && sweep.length
-        ? swordContact(sweep, d)
+        ? run.combo === 1 ? (d === firstTarget ? firstContact : null) : swordContact(sweep, d)
         : null;
     if (contact) {
       struck.add(d);
@@ -837,6 +861,7 @@ function update(dt) {
         const inStrike =
           d.type === 1
             ? distanceTo(d.aimX, d.aimY) < 47
+            : d.type === 0 ? biteReachesPlayer(d)
             : dist < traits.range + 20 && -dx * d.aimX - dy * d.aimY > -10;
         const guardAge = run.phase - run.guardAt;
         const canParry = !parryUsed && !rolling &&
@@ -960,6 +985,11 @@ function update(dt) {
     }
   }
   ui();
+}
+function biteReachesPlayer(d) {
+  const dx = run.pos - d.x, dz = (run.depth - d.y) / depthRatio;
+  const jaw = Math.max(22, Math.min(43, dx * d.aimX + dz * d.aimY));
+  return Math.hypot(dx - jaw * d.aimX, dz - jaw * d.aimY) <= 24;
 }
 function enemyWindup(d) {
   const base =

@@ -1,5 +1,6 @@
 import {
   worldPoint,
+  houndBackHeight,
   triangle,
   hull,
   panel,
@@ -98,8 +99,7 @@ function fallingFoot(d, index, pattern, fall) {
     foot[1] * (1 - blend), foot[2] + (pattern[index][1] - foot[2]) * blend];
 }
 function houndModel(d, load, snap, fall) {
-  const breath = Math.sin(run.phase * 3 + d.home) * 0.65;
-  const h = 32 + breath - load * 10 + snap * 4;
+  const h = houndBackHeight(d, load, snap);
   const chest = fall ? 6 * fall.brace * Math.min(1, fall.rise * 4) : 0;
   // Pelvis, tucked belly, deep rib cage, withers and sloping neck.
   sculpt(

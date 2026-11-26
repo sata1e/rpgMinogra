@@ -1365,17 +1365,15 @@ function enemyLocalPoint(point, scale) {
   const c = Math.cos(orientation), s = Math.sin(orientation);
   return [(x*c + z*s)/scale, h/scale, (z*c - x*s)/scale];
 }
-function demon(d) {
-  const twistAge = run.phase - (d.turnAt ?? -10);
-  const twist =
-    (d.hitTwist || 0) * Math.sin(Math.PI * clamp01(twistAge / 0.48));
-  const fall = bodyTilt?.fall;
-  place(
-    d.x,
-    roadZ(d.y),
-    (fall ? d.fallFacing : d.feet?.angle ??
-      Math.atan2((run.depth - d.y) / depthRatio, run.pos - d.x)) + twist,
-  );
+export function demonFacing(d) {
+  const twist = (d.hitTwist || 0) * Math.sin(Math.PI * clamp01((run.phase - (d.turnAt ?? -10)) / .48));
+  const facing = d.fellAt !== undefined ? d.fallFacing :
+    d.type === 0 && d.wind >= 0 ? Math.atan2(d.aimY, d.aimX) :
+    d.feet?.angle ?? Math.atan2(roadZ(run.depth) - roadZ(d.y), run.pos - d.x);
+  return facing + twist;
+}
+export function demonAttackPose(d) {
+  const fall = d.fellAt !== undefined;
   const winding = !fall && d.wind >= 0;
   const sinceHit = run.phase - (d.struckAt ?? -10);
   const following = !fall && !winding && sinceHit < .32;
@@ -1383,8 +1381,17 @@ function demon(d) {
     : {lift: Number(following), strike: Number(following)};
   const recover = following ? ease(sinceHit / .32) : 0;
   const load = lift * (1 - strike) * (1 - recover);
+  return {winding, lift, strike, recover, load, snap: strike * (1 - recover)};
+}
+export function houndBackHeight(d, load, snap) {
+  return 32 + Math.sin(run.phase * 3 + d.home) * .65 - load * 10 + snap * 4;
+}
+function demon(d) {
+  const fall = bodyTilt?.fall;
+  place(d.x, roadZ(d.y), demonFacing(d));
+  const {winding, lift, strike, recover, load, snap} = demonAttackPose(d);
   const start = scene.faces.length;
-  if (d.type === 0) houndModel(d, load, strike * (1 - recover), fall);
+  if (d.type === 0) houndModel(d, load, snap, fall);
   else if (d.type === 1) mournerModel(d, load, fall);
   else {
     const contactAge = run.phase - (d.deflectedAt ?? -10);
