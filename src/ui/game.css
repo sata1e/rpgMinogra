@@ -531,6 +531,6 @@ kbd {
   pointer-events: none;
 }
 
-html.hide-game-cursor, html.hide-game-cursor * { cursor: none !important; }
+html.hide-game-cursor, html.hide-game-cursor * { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3C/svg%3E") 0 0, none !important; }
 
 #scene { -webkit-user-select: none; user-select: none; }

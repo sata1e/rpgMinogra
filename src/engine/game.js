@@ -27,6 +27,7 @@ view.mouseLook = false;
 let hadLock = false;
 let requestingLock = false;
 let edgeTurn = 0;
+let previousPointer = null;
 let releasingLock = false;
 const heldAlts = new Set();
 function syncCursor() {
@@ -55,6 +56,7 @@ function lockFailed() {
 }
 function resetMouse() {
   edgeTurn = 0;
+  previousPointer = null;
   heldAlts.clear();
   releaseMouse();
 }
@@ -105,26 +107,36 @@ function bindControls() {
       Math.min(0.7, view.cameraPitch + dy * 0.003),
     );
   }
-  window.addEventListener("mousemove", (e) => {
-    if (run.paused || heldAlts.size || (!view.mouseLook && e.target !== canvas)) return;
-    if (document.pointerLockElement !== canvas && e.target !== canvas) return;
+  function lookUnlocked(e) {
+    if (run.paused || heldAlts.size || document.pointerLockElement === canvas) return;
     view.mouseLook = true;
-    orbit(e.movementX, e.movementY);
-    // When a WebView forbids pointer lock, the edge keeps turning the camera.
-    edgeTurn = 0;
-    if (document.pointerLockElement !== canvas) {
-      const bounds = canvas.getBoundingClientRect();
-      const x = e.clientX - bounds.left;
-      const band = Math.min(32, bounds.width * 0.08);
-      if (band > 0) edgeTurn = x < band ? x / band - 1 :
-        x > bounds.width - band ? 1 - (bounds.width - x) / band : 0;
+    if (previousPointer) orbit(e.clientX - previousPointer.x, e.clientY - previousPointer.y);
+    previousPointer = { x: e.clientX, y: e.clientY };
+    const bounds = canvas.getBoundingClientRect();
+    const band = Math.min(40, bounds.width * 0.1);
+    const x = e.clientX - bounds.left;
+    edgeTurn = band > 0 ? Math.max(-1, Math.min(1,
+      x < band ? x / band - 1 : x > bounds.width - band ? 1 - (bounds.width - x) / band : 0
+    )) : 0;
+  }
+  window.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "mouse") lookUnlocked(e);
+  }, true);
+  window.addEventListener("mousemove", (e) => {
+    if (run.paused || heldAlts.size) return;
+    if (document.pointerLockElement === canvas) {
+      view.mouseLook = true;
+      orbit(e.movementX, e.movementY);
+    } else {
+      // WebViews may send only compatibility mouse events. Identical coordinates yield zero.
+      lookUnlocked(e);
     }
-  });
-  canvas.addEventListener("mouseleave", () => { edgeTurn = 0; });
+  }, true);
   document.addEventListener("pointerlockerror", lockFailed);
   document.addEventListener("pointerlockchange", () => {
     const locked = document.pointerLockElement === canvas;
     requestingLock = false;
+    previousPointer = null;
     edgeTurn = 0;
     syncCursor();
     const wasLocked = hadLock;
@@ -174,6 +186,7 @@ function bindControls() {
     if (!run.paused && (e.code === "AltLeft" || e.code === "AltRight")) {
       e.preventDefault();
       edgeTurn = 0;
+      previousPointer = null;
       heldAlts.add(e.code);
       syncCursor();
       releaseMouse();
