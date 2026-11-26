@@ -629,7 +629,6 @@ function modal(open) {
   keys.clear();
   $(".overlay").hidden = !open || dead;
   $("#chargeHud").hidden = true;
-  $("#armory").hidden = !(starting || won || dead);
   document.dispatchEvent(new CustomEvent("game:pause", { detail: open }));
   if (open && dead) {
     document.dispatchEvent(new Event("game:defeat"));

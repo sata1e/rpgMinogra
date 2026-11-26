@@ -1423,11 +1423,6 @@ function ronin() {
   const spine = ridge(1);
   panel([a, b, spine[1], spine[0]], 7, true, 2);
   panel([b, c, spine[1]], 7, true, 2);
-  if (weapon.doubleEdge) {
-    const back = ridge(-1);
-    panel([a, back[0], back[1], b], 19, true);
-    panel([b, back[1], c], 19, true);
-  }
   const flick = run.phase - run.cleanAt - 0.21;
   if (run.bladeOut && flick >= 0 && flick < 0.19) {
     for (let i = 0; i < 4; i++)

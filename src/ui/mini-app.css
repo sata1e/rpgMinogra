@@ -233,24 +233,10 @@ button {
 .playing-fullscreen #scene { flex: 1; min-height: 0; height: auto; }
 .playing-fullscreen .touch { flex-shrink: 0; }
 
-.armory {
-  display: grid; grid-template-columns: auto minmax(0,1fr);
-  align-items: center; gap: 6px 16px;
-  border-block: 1px solid #687263; padding-block: 8px;
-}
-.armory[hidden] { display: none }
-.armory select {
-  background: #192522; border: 1px solid #777967; color: var(--ivory);
-  font: inherit; min-height: 44px; padding-inline: 10px;
-}
-#weaponPreview { width: min(100%,300px); height: 32px; image-rendering: pixelated }
-#weaponHint, #weaponPreview { grid-column: 1/-1 }
-#weaponHint { margin: 0; font: 15px/1.35 Georgia,serif; color: #e0d7c6 }
 .overlay { overflow-y: auto; align-content: safe end; touch-action: pan-y }
 @media (max-height: 650px), (max-width: 760px) {
   .overlay { align-content: safe start }
   .menu-panel { gap: 7px }
-  #weaponPreview { height: 22px; width: auto; max-width: 100% }
 }
 
 #defeat {

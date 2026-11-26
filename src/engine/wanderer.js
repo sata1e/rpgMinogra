@@ -43,7 +43,7 @@ function ripostePose(age, move) {
     coil: channel(p.coil, -.32 * side, 0),
     shift: channel(p.shift, 7, 0), lateral: channel(p.lateral, -side * 2, 0),
     shrug: channel(p.shrug, 0, 0), drop: channel(p.drop, low ? 9 : 4, 0),
-    supportGrip: channel(p.supportGrip, weapon.grip >= 11 ? 1 : 0, weapon.grip >= 11 ? 1 : 0)
+    supportGrip: channel(p.supportGrip, 1, 1)
   };
 }
 function katanaPose(age) {
@@ -110,7 +110,7 @@ function steppingDraw(age, move) {
     pitch:mix(mix(carryPitch,.43-.40*(move.lowAim||0),arc),.67,settle),
     coil:load*mix(-.30,.52,arc), lateral, shift, drop, load, turn:arc*(1-settle),
     shrug:load*arc, reach, exposed, carryReady:settle,
-    sheathHold:1-support, supportGrip:weapon.grip>=11 ? support : 0,
+    sheathHold:1-support, supportGrip:support,
   };
 }
 function sheathTravel() {
@@ -210,11 +210,6 @@ function baseKatanaPose(age) {
       arcYaw = side * weapon.arc * mix(-1.72, 1.48, edge);
       arcPitch = mix(profile.fromPitch, profile.toPitch, edge);
     }
-    if (!run.combo && !move.link && weapon.thrust && run.lightVariant === 0) {
-      arcHand = [mix(12, 36, strike) + shift, lateral + side * 4, mix(62, 55, strike) - drop];
-      arcYaw = side * mix(-0.35, 0.02, strike);
-      arcPitch = mix(0.22, -0.11, strike);
-    }
     // Lower the actual swing toward a short opponent, including the visible grip and edge.
     const low = move.lowAim || 0;
     const descend = run.combo ? strike : 1;
@@ -277,7 +272,7 @@ function baseKatanaPose(age) {
   return {
     carryReady: midCut ? mix(ready,1,ease((age-move.end)/(move.duration-move.end))) : ready,
     sheathHold: midCut ? (run.fromSheath ? 1-supportGrip : 0) : 1-ready,
-    supportGrip: weapon.grip < 11 ? 0 : supportGrip,
+    supportGrip: supportGrip,
     reach,
     exposed,
     mouth,
