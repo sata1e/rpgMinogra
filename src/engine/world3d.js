@@ -324,7 +324,7 @@ function model(x, z, draw, r = 170, scale = 1) {
     step ? simplifyMesh(full, step) : full,
   );
   const mesh = {
-    lo, hi, center,
+    lo, hi, center, id: meshes.length,
     radius: Math.hypot(hi[0] - center[0], hi[1] - center[1], hi[2] - center[2]),
     levels,
   };
@@ -516,9 +516,8 @@ function pine() {
     }
   }
 }
-const houseMeshes = [];
 function buildScenery() {
-  for (const [x, z, s] of buildings) houseMeshes.push(model(x, z, shrine, 260, s));
+  for (const [x, z, s] of buildings) model(x, z, shrine, 260, s);
   for (const [x, z, s] of [
     [730, 22, 1.85],
     [5310, 0, 2.5],
@@ -1601,10 +1600,9 @@ function updateSight() {
     sightPoints.push([run.pos,floor+height,z]);
   }
 }
-const enemyOccluders = new Set();
-function updateEnemyOccluders() {
-  enemyOccluders.clear();
-  const points = [];
+const sceneryOccluders = new Set();
+function updateSceneryOccluders() {
+  sceneryOccluders.clear();
   for (const d of guards) {
     if (!combatOpponent(d)) continue;
     const z = roadZ(d.y), floor = groundHeight(d.x,z);
@@ -1619,14 +1617,25 @@ function updateEnemyOccluders() {
         depth += above*tilt.sin*tilt.nz;
         h = tilt.pivot+above*tilt.cos;
       }
-      if (actorVisible(x,floor+h,depth,0)) points.push([x,floor+h,depth]);
+      if (actorVisible(x,floor+h,depth,0)) sightPoints.push([x,floor+h,depth]);
     }
   }
-  for (const house of houseMeshes) {
-    if (blocksView(house.lo,house.hi,house.levels[0].faces,points)) enemyOccluders.add(house);
+  // Reject objects outside the volume spanning the eye and all visible fighters
+  // before testing individual sight lines against the object's triangles.
+  const lo = [...scene.eye], hi = [...scene.eye];
+  for (const point of sightPoints) {
+    for (let axis = 0; axis < 3; axis++) {
+      lo[axis] = Math.min(lo[axis], point[axis]);
+      hi[axis] = Math.max(hi[axis], point[axis]);
+    }
   }
-  // Only an actual change of obstruction invalidates the stationary camera's backdrop.
-  return houseMeshes.map(house => Number(enemyOccluders.has(house))).join("");
+  for (const mesh of meshes) {
+    if (mesh.lo[0] > hi[0] || mesh.hi[0] < lo[0] ||
+        mesh.lo[2] > hi[2] || mesh.hi[2] < lo[2] ||
+        mesh.lo[1] > hi[1] || mesh.hi[1] < lo[1]) continue;
+    if (blocksView(mesh.lo, mesh.hi, mesh.levels[0].faces)) sceneryOccluders.add(mesh.id);
+  }
+  return [...sceneryOccluders].join(",");
 }
 function intersectsFace(face, dx, dy, dz, near, far) {
   const [a,b,c] = face;
@@ -1776,7 +1785,7 @@ function drawScenery() {
       Math.abs(x * up[0] + y * up[1] + z * up[2]) > halfY * d + sideY * r
     )
       continue;
-    veilObject = mirrorPass ? 0 : veilId(mesh, enemyOccluders.has(mesh) || blocksView(mesh.lo,mesh.hi,mesh.levels[0].faces));
+    veilObject = mirrorPass ? 0 : veilId(mesh, sceneryOccluders.has(mesh.id));
     const footprint = Math.max(0, d - r) / aspectY;
     const level =
       footprint > 16
@@ -2394,7 +2403,7 @@ function renderWorld() {
     ...scene.eye,
     view.cameraYaw,
     view.cameraPitch,
-    view.cameraRange, sightPoints[0][1], updateEnemyOccluders(),
+    view.cameraRange, sightPoints[0][1], updateSceneryOccluders(),
   ].join("/");
   fadeFrame++;
   const rebuilt = key !== backdropKey;
