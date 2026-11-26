@@ -1,3 +1,4 @@
+import { fallPose } from "./death.js";
 import { attackPhases } from "./enemy-attacks.js";
 import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
@@ -142,7 +143,7 @@ function place(x, z, rot = 0, scale = 1) {
   orientation = rot;
   scene.unit = scale;
 }
-let rollPose = null;
+let groundPose = null;
 let bodyTilt = null,
   torsoPose = null;
 function worldPoint([x, y, z]) {
@@ -151,10 +152,10 @@ function worldPoint([x, y, z]) {
     y += torsoPose.shrug * blend;
     z += torsoPose.lateral * (1 - 0.27 * blend);
   }
-  if (rollPose?.chin) {
-    const h = y - rollPose.chin.y, f = x - rollPose.chin.x;
-    x = rollPose.chin.x + f * rollPose.chin.cos + h * rollPose.chin.sin;
-    y = rollPose.chin.y + h * rollPose.chin.cos - f * rollPose.chin.sin;
+  if (groundPose?.chin) {
+    const h = y - groundPose.chin.y, f = x - groundPose.chin.x;
+    x = groundPose.chin.x + f * groundPose.chin.cos + h * groundPose.chin.sin;
+    y = groundPose.chin.y + h * groundPose.chin.cos - f * groundPose.chin.sin;
   }
   const c = Math.cos(orientation),
     s = Math.sin(orientation);
@@ -172,8 +173,8 @@ function worldPoint([x, y, z]) {
       height = Math.max(1, pivot + above * cos - along * sin);
     }
   }
-  if (rollPose) {
-    const {x, y, bankCos, bankSin} = rollPose;
+  if (groundPose) {
+    const {x, y, bankCos, bankSin} = groundPose;
     const side = -dx * y + dz * x;
     const up = height - 36;
     const lean = side * (bankCos - 1) - up * bankSin;
@@ -182,13 +183,13 @@ function worldPoint([x, y, z]) {
     height = 36 + side * bankSin + up * bankCos;
     const forward = dx * x + dz * y;
     const h = height - 36;
-    const shift = forward * (rollPose.cos - 1) + h * rollPose.sin;
+    const shift = forward * (groundPose.cos - 1) + h * groundPose.sin;
     dx += x * shift;
     dz += y * shift;
-    height = 36 + h * rollPose.cos - forward * rollPose.sin;
+    height = 36 + h * groundPose.cos - forward * groundPose.sin;
     const vertex = [origin[0] + dx, height, origin[2] + dz];
-    rollPose.vertices.push(vertex);
-    if (rollPose.bodyContact) rollPose.lowest = Math.min(rollPose.lowest, height);
+    groundPose.vertices.push(vertex);
+    if (groundPose.bodyContact) groundPose.lowest = Math.min(groundPose.lowest, height);
     return vertex;
   }
   return [origin[0] + dx, height, origin[2] + dz];
@@ -1096,9 +1097,21 @@ function maskedHead(x, y) {
 }
 function ronin() {
   const age = run.phase - run.attackAt,
-    p = katanaPose(age),
-    dir = age < cut().duration ? run.attackDir : run.heading;
-  const tuck = rollPose?.tuck ?? 0;
+    fall = groundPose?.fall,
+    p = fall ? { ...run.fall.pose } : katanaPose(age),
+    dir = fall ? run.fall.heading : age < cut().duration ? run.attackDir : run.heading;
+  if (fall) {
+    p.drop += fall.drop;
+    p.mouth = [...p.mouth];
+    p.mouth[2] -= fall.drop;
+    if (run.bladeOut) {
+      p.tsuba = blend3(p.tsuba, [8, 18, 48 - fall.drop], fall.relax);
+      p.pitch = mix(p.pitch, -.26, fall.relax);
+      p.yaw = mix(p.yaw, .8, fall.relax);
+      p.supportGrip *= 1 - fall.relax;
+    }
+  }
+  const tuck = groundPose?.tuck ?? 0;
   if (tuck) {
     p.drop += 25 * tuck;
     p.coil -= 0.4 * tuck;
@@ -1130,10 +1143,16 @@ function ronin() {
       sign < 0 ? 0 : 1,
       humanFeet,
     );
-    const gather = rollPose?.gather ?? 0;
+    const gather = groundPose?.gather ?? 0;
     foot = mix(foot, sign < 0 ? 10 : -4, tuck);
     lift = mix(lift, sign < 0 ? 19 : 13, gather);
     footZ = mix(footZ, sign * 4.5, gather);
+    if (fall && sign > 0) {
+      const facing = Math.atan2(dir.y, dir.x);
+      foot += 12 * fall.step * (run.fall.x * Math.cos(facing) + run.fall.z * Math.sin(facing));
+      footZ += 12 * fall.step * (run.fall.z * Math.cos(facing) - run.fall.x * Math.sin(facing));
+      lift += 7 * fall.step;
+    }
     const ankle = foot - 1;
     const knee = bendJoint(
       [hip, 48 - drop, sign * 5.5 + p.lateral],
@@ -1223,7 +1242,7 @@ function ronin() {
     true,
   );
   torsoPose = null;
-  if (rollPose) rollPose.bodyContact = false;
+  if (groundPose) groundPose.bodyContact = false;
   const mouth = point(v.mouth),
     shoe = point(v.shoe);
   const saya = (t) => mouth.map((n, i) => mix(n, shoe[i], t));
@@ -1233,12 +1252,12 @@ function ronin() {
   for (const t of [0.17, 0.22, 0.27])
     rod(saya(t), saya(t + 0.024), 3, 30, true);
   torsoPose = p;
-  if (rollPose) {
-    rollPose.bodyContact = true;
-    rollPose.chin = {x: shoulder + 3, y: neck, cos: Math.cos(tuck * 1.25), sin: Math.sin(tuck * 1.25)};
+  if (groundPose) {
+    groundPose.bodyContact = true;
+    groundPose.chin = {x: shoulder + 3, y: neck, cos: Math.cos(tuck * 1.25), sin: Math.sin(tuck * 1.25)};
   }
   maskedHead(shoulder + 3, neck);
-  if (rollPose) rollPose.chin = null;
+  if (groundPose) groundPose.chin = null;
   torsoPose = null;
   const reach = p.reach;
   const walkSwing =
@@ -1262,7 +1281,7 @@ function ronin() {
   );
   arm3(shoulderPoint([shoulder + 2, neck - 8, 13]),
     run.bladeOut ? wrist : blend3(wrist, [shoulder + 8, neck, 9], tuck), 1);
-  if (rollPose) rollPose.bodyContact = false;
+  if (groundPose) groundPose.bodyContact = false;
   const hilt = (t) =>
     point(v.rear).map((value, i) => mix(value, point(v.guard)[i], t));
   rod(hilt(0), hilt(1), 2.05, 0, true);
@@ -1796,25 +1815,34 @@ function actors3d() {
   const first = scene.faces.length;
   bodyTilt = impactTilt(heroMotion, 30);
   const roll = (run.phase - run.rollAt) / rollDuration;
-  if (roll >= 0 && roll < 1) {
+  if (run.fall) {
+    const fall = fallPose(run.phase - run.fall.at);
+    groundPose = {
+      fall, x: run.fall.x, y: run.fall.z,
+      sin: Math.sin(fall.angle), cos: Math.cos(fall.angle),
+      bankSin: Math.sin(fall.bank), bankCos: Math.cos(fall.bank),
+      tuck: 0, gather: 0, groundWeight: fall.groundWeight,
+      vertices: [], lowest: Infinity, bodyContact: true,
+    };
+  } else if (roll >= 0 && roll < 1) {
     const tuck = ease(roll / .23) * (1 - ease((roll - .67) / .33));
     const gather = ease((roll - .10) / .24) * (1 - ease((roll - .61) / .19));
     const angle = Math.PI * 2 * ease((roll - .10) / .72);
     const bank = .78 * tuck;
     const skew = .24 * tuck;
     const {x, y} = run.rollDir;
-    rollPose = {
+    groundPose = {
       x: x * Math.cos(skew) - y * Math.sin(skew), y: y * Math.cos(skew) + x * Math.sin(skew),
       sin: Math.sin(angle), cos: Math.cos(angle), bankSin: Math.sin(bank), bankCos: Math.cos(bank),
-      tuck, gather, vertices: [], lowest: Infinity, bodyContact: true
+      tuck, gather, groundWeight: tuck, vertices: [], lowest: Infinity, bodyContact: true
     };
   }
   ronin();
-  if (rollPose) {
+  if (groundPose) {
     // Anchor the lowest body point as support passes from feet to shoulder and back.
-    const offset = (1 - rollPose.lowest) * rollPose.tuck;
-    for (const vertex of rollPose.vertices) vertex[1] += offset;
-    rollPose = null;
+    const offset = (1 - groundPose.lowest) * groundPose.groundWeight;
+    for (const vertex of groundPose.vertices) vertex[1] += offset;
+    groundPose = null;
   }
   bodyTilt = null;
   for (let i = first; i < scene.faces.length; i++) {

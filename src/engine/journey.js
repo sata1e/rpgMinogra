@@ -1,3 +1,4 @@
+import { deathDuration } from "./death.js";
 import { rollDuration, rollCost, chargeDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { W } from "./config.js";
@@ -84,6 +85,7 @@ let velocity = 0;
 run.paused = false;
 let won = false;
 let dead = false;
+run.fall = null;
 run.sound = false;
 run.audio = undefined;
 run.phase = 0;
@@ -262,7 +264,7 @@ run.bladeOut = false;
 run.bladeChanged = -10;
 function toggleBlade() {
   if (
-    run.paused ||
+    run.paused || run.fall ||
     run.phase - run.bladeChanged < 0.48 ||
     run.windAt !== null ||
     run.phase - run.attackAt < cut().duration ||
@@ -278,7 +280,7 @@ function toggleBlade() {
 }
 function drawSword() {
   if (
-    run.paused ||
+    run.paused || run.fall ||
     run.phase - run.bladeChanged < 0.48 ||
     run.windAt !== null ||
     run.phase - run.attackAt < cut().duration ||
@@ -320,7 +322,7 @@ function whisper(message) {
 }
 function parry() {
   if (
-    run.paused ||
+    run.paused || run.fall ||
     run.phase - run.bladeChanged < 0.48 ||
     run.phase - run.guardAt < 0.68 ||
     run.phase - run.attackAt < cut().end ||
@@ -449,7 +451,7 @@ function ui() {
   );
 }
 function interact() {
-  if (run.paused) return;
+  if (run.paused || run.fall) return;
   ringNearbyBell();
   ui();
 }
@@ -457,7 +459,7 @@ function attack(requestedStyle) {
   if (run.windAt === null) return;
   const held = run.phase - run.windAt;
   run.windAt = null;
-  if (run.paused) return;
+  if (run.paused || run.fall) return;
   const style = requestedStyle ?? (held >= chargeDuration ? 1 : 0);
   const base = (run.bladeOut ? readyCuts : cuts)[style];
   const cost = Math.round(base.cost * weapon.tempo);
@@ -497,7 +499,7 @@ function attack(requestedStyle) {
 }
 function roll() {
   if (
-    run.paused ||
+    run.paused || run.fall ||
     run.phase - run.rollAt < 0.84 ||
     run.phase - run.attackAt < cut().end ||
     run.phase - run.guardAt < 0.25 ||
@@ -584,6 +586,7 @@ function resetRun() {
   feedbackUntil = 0;
   run.spent = true;
   won = dead = false;
+  run.fall = null;
   run.deflectedAt = -10;
   riposteTarget = null;
   nextLight = 0;
@@ -671,6 +674,15 @@ function movementInput() {
   };
 }
 function update(dt) {
+  if (run.fall) {
+    expireCombatFx();
+    settleRecoil(heroMotion, dt);
+    if (run.phase - run.fall.at >= deathDuration) {
+      dead = true;
+      modal(true);
+    }
+    return;
+  }
   expireCombatFx();
   const bodies = startMotion(dt);
   if (run.phase - Math.max(run.attackAt, run.rollAt, run.guardAt) > rollDuration)
@@ -872,9 +884,18 @@ function update(dt) {
           hurtAt = run.phase;
           ping(88);
           if (!health) {
-            dead = true;
-            modal(true);
-            break;
+            const x = dist > .001 ? -dx / dist : -run.heading.x;
+            const z = dist > .001 ? -dy / dist : -run.heading.y;
+            run.fall = {
+              at: run.phase, x, z, heading: { ...run.heading },
+              pose: katanaPose(run.phase - run.attackAt),
+            };
+            d.wind = -10;
+            d.chain = 0;
+            keys.clear();
+            feedbackUntil = 0;
+            ui();
+            return;
           }
         }
         d.wind = -10;
