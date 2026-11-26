@@ -1,3 +1,4 @@
+import { bindArmory } from "./ui/armory";
 import { bindFullscreen } from "./ui/fullscreen";
 import "./ui/game.css";
 import "./ui/mini-app.css";
@@ -8,6 +9,7 @@ import { buildScenery } from "./engine/world3d.js";
 import { resetScenery } from "./engine/valley.js";
 import { connectTelegram } from "./platform/telegram";
 
+bindArmory();
 bindFullscreen();
 resetScenery();
 buildScenery();

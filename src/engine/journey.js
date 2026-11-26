@@ -1,3 +1,4 @@
+import { weapon } from "./weapons.js";
 import { W } from "./config.js";
 import { view, resetMouse } from "./game.js";
 import {
@@ -197,7 +198,8 @@ const readyCuts = [
 run.fromSheath = true;
 run.slashSide = 1;
 run.cleanAt = -10;
-const cut = () => (run.fromSheath ? cuts : readyCuts)[run.combo];
+let activeCut = cuts[0];
+const cut = () => activeCut;
 const activeGuard = (d) =>
   Math.abs(d.x - run.pos) < 1400 && Math.abs(d.y - run.depth) < 850;
 const enemies = [
@@ -397,7 +399,7 @@ function ui() {
     (Math.round((Math.atan2(vertical, horizontal) * 4) / Math.PI) + 8) % 8
   ];
   setText("#bearing", Math.round(Math.hypot(wx, wz) / 10) + " м " + arrow);
-  setText("#bladeState", run.bladeOut ? "Клинок обнажён" : "Клинок в ножнах");
+  setText("#bladeState", weapon.name + (run.bladeOut ? " · в руке" : " · в ножнах"));
   setText(
     "#notice",
     run.phase < feedbackUntil
@@ -418,10 +420,15 @@ function attack(requestedStyle) {
   run.windAt = null;
   if (run.paused) return;
   const style = requestedStyle ?? (held >= 0.48 ? 1 : 0);
-  if (spirit < cuts[style].cost) {
+  const base = (run.bladeOut ? readyCuts : cuts)[style];
+  const cost = Math.round(base.cost * weapon.tempo);
+  if (spirit < cost) {
     whisper("Дайте дыханию восстановиться");
     return;
   }
+  activeCut = { ...base, cost, duration: base.duration * weapon.tempo,
+    start: base.start * weapon.tempo, end: base.end * weapon.tempo,
+    damage: base.damage * weapon.tempo };
   run.fromSheath = !run.bladeOut;
   run.bladeOut = true;
   run.bladeChanged = -10;
@@ -475,6 +482,7 @@ function modal(open) {
   run.paused = open;
   keys.clear();
   $(".overlay").hidden = !open;
+  $("#armory").hidden = !(starting || won || dead);
   document.dispatchEvent(new CustomEvent("game:pause", { detail: open }));
   setText(
     "#modalTitle",

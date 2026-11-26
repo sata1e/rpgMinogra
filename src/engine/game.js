@@ -126,7 +126,7 @@ function bindControls() {
     }
   };
   window.onkeydown = (e) => {
-    if (run.paused && e.target === selector && e.code !== "Escape") return;
+    if (run.paused && e.target instanceof HTMLSelectElement && e.code !== "Escape") return;
     if (
       ![
         "ArrowRight",

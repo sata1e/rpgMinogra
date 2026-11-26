@@ -1,3 +1,4 @@
+import { weapon } from "./weapons.js";
 import {
   clamp01,
   mix,
@@ -1186,7 +1187,7 @@ function ronin() {
   const mouth = point(v.mouth),
     shoe = point(v.shoe);
   const saya = (t) => mouth.map((n, i) => mix(n, shoe[i], t));
-  rod(mouth, shoe, 2.65, 0, true);
+  rod(mouth, shoe, weapon.width + .25, weapon.lacquer, true);
   rod(mouth, saya(0.055), 3, 12, true);
   rod(saya(0.92), shoe, 3.1, 12, true);
   for (const t of [0.17, 0.22, 0.27])
@@ -1225,13 +1226,17 @@ function ronin() {
     c = point(v.tip);
   rod([a[0], a[1], a[2] - 4], [a[0], a[1], a[2] + 4], 1.8, 3, true);
   if (p.exposed < 0.008) return;
-  const spine = [a, b, c].map((pt, i) => [
-    pt[0],
-    pt[1] + [2.4, 1.9, 0][i],
-    pt[2],
-  ]);
+  const normal = [-Math.cos(p.yaw)*Math.sin(p.pitch), Math.cos(p.pitch), -Math.sin(p.yaw)*Math.sin(p.pitch)];
+  const ridge = (sign) => [a,b,c].map((pt,i) => pt.map((n,k) =>
+    n + sign * normal[k] * weapon.width * [1,.82,0][i]));
+  const spine = ridge(1);
   panel([a, b, spine[1], spine[0]], 7, true, 2);
   panel([b, c, spine[1]], 7, true, 2);
+  if (weapon.doubleEdge) {
+    const back = ridge(-1);
+    panel([a, back[0], back[1], b], 19, true);
+    panel([b, back[1], c], 19, true);
+  }
   const flick = run.phase - run.cleanAt - 0.21;
   if (run.bladeOut && flick >= 0 && flick < 0.19) {
     for (let i = 0; i < 4; i++)
@@ -1960,15 +1965,15 @@ function paintPixels() {
 }
 let backdrop = null,
   backdropKey = "";
-let detailScale = 0.72,
+let detailScale = 0.83,
   renderCost = 13,
   samples = 0;
 function tuneResolution(ms) {
   renderCost += 0.12 * (Math.min(80, ms) - renderCost);
   if (++samples < 16) return;
-  if (renderCost > 13.5 && detailScale > 0.38) {
+  if (renderCost > 13.5 && detailScale > 0.32) {
     detailScale = Math.max(
-      0.38,
+      0.32,
       detailScale * Math.max(0.79, Math.sqrt(12 / renderCost)),
     );
     samples = 0;
@@ -1981,7 +1986,7 @@ function renderWorld() {
   const w = Math.max(1, canvas.clientWidth),
     h = Math.max(1, canvas.clientHeight);
   const started = performance.now();
-  const pixelScale = Math.max(1.65, w / 690, h / 375) / detailScale;
+  const pixelScale = Math.max(1.22, w / 1024, h / 576) / detailScale;
   const nx = Math.max(1, Math.round(w / pixelScale)),
     ny = Math.max(1, Math.round(h / pixelScale));
   if (nx !== cols || ny !== rows) {

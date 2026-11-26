@@ -1,3 +1,4 @@
+import { weapon } from "./weapons.js";
 import { cut, run, depthRatio } from "./journey.js";
 import { impactTilt, roadZ } from "./world3d.js";
 const motion = {};
@@ -11,7 +12,7 @@ const ease = (v) => {
 };
 // Coordinates within a pose are forward, lateral, and height. The scabbard
 // slides backwards under the left hand as the right hand draws the blade.
-const steelLength = 55;
+
 const mix = (a, b, t) => a + (b - a) * t;
 const blend3 = (a, b, t) => a.map((n, i) => mix(n, b[i], t));
 const bladeAxis = (yaw, pitch) => [
@@ -66,11 +67,11 @@ function katanaPose(age) {
     ready = run.fromSheath ? 0 : 1;
   }
   const mouth = [-8 + shift * 0.35, 10, 79 - drop].map(
-    (n, i) => n + axis[i] * 30 * exposed * (1 - ready),
+    (n, i) => n + axis[i] * (weapon.length - 25) * exposed * (1 - ready),
   );
   const drawn = mouth.map(
     (n, i) =>
-      n - axis[i] * steelLength * exposed - (i === 2 ? 2.3 * exposed : 0),
+      n - axis[i] * weapon.length * exposed - (i === 2 ? 2.3 * exposed : 0),
   );
   let hand = blend3(drawn, readyHand, ready),
     yaw = mix(-1.72, 0.16, ready),
@@ -83,7 +84,7 @@ function katanaPose(age) {
     const strike = ease((age - move.start) / (move.end - move.start));
     const recoverAt = move.end + 0.035;
     const settle = ease((age - recoverAt) / (move.duration - recoverAt));
-    const handAngle = side * mix(-0.9, 0.97, strike);
+    const handAngle = side * weapon.arc * mix(-0.9, 0.97, strike);
     const edge = ease((age - move.start - 0.012) / (move.end - move.start));
     let arcHand, arcYaw, arcPitch;
     if (run.combo) {
@@ -91,7 +92,7 @@ function katanaPose(age) {
       arcHand = [
         5 + shift + 28 * Math.cos(armAngle),
         2 + lateral + side * 2 * Math.sin(Math.PI * strike),
-        75 - drop + shrug + 28 * Math.sin(armAngle),
+        75 + weapon.lift - drop + shrug + 28 * Math.sin(armAngle),
       ];
       arcYaw = side * 0.12;
       arcPitch = mix(3.86, -0.41, edge);
@@ -101,10 +102,15 @@ function katanaPose(age) {
       arcHand = [
         5 + shift + 18 * Math.cos(handAngle),
         lateral + 18 * Math.sin(handAngle),
-        mix(profile.high, profile.low, strike) - drop + shrug,
+        mix(profile.high, profile.low, strike) + weapon.lift - drop + shrug,
       ];
-      arcYaw = side * mix(-1.72, 1.48, edge);
+      arcYaw = side * weapon.arc * mix(-1.72, 1.48, edge);
       arcPitch = mix(profile.fromPitch, profile.toPitch, edge);
+    }
+    if (!run.combo && weapon.thrust && run.lightVariant === 0) {
+      arcHand = [mix(12, 36, strike) + shift, lateral + side * 4, mix(62, 55, strike) - drop];
+      arcYaw = side * mix(-0.35, 0.02, strike);
+      arcPitch = mix(0.22, -0.11, strike);
     }
     hand = blend3(blend3(hand, arcHand, wind), readyHand, settle);
     yaw = mix(mix(yaw, arcYaw, wind), 0.16, settle);
@@ -114,7 +120,7 @@ function katanaPose(age) {
       settle,
     );
     for (let i = 0; i < 3; i++)
-      mouth[i] -= axis[i] * 30 * exposed * (1 - ready) * wind;
+      mouth[i] -= axis[i] * (weapon.length - 25) * exposed * (1 - ready) * wind;
   } else if (blocking) {
     const guard = Math.sin((Math.PI * parryAge) / 0.32);
     hand = blend3(hand, [21, 3, 73], guard);
@@ -149,7 +155,7 @@ function katanaPose(age) {
       ? 0
       : ready;
   return {
-    supportGrip,
+    supportGrip: weapon.grip < 11 ? 0 : supportGrip,
     reach,
     exposed,
     mouth,
@@ -175,15 +181,15 @@ function weaponGeometry(p, dir, x, y) {
   });
   const along = (origin, v, t, bend = 0) =>
     world(origin.map((n, i) => n + v[i] * t + (i === 2 ? bend : 0)));
-  const length = steelLength * p.exposed;
+  const length = weapon.length * p.exposed;
   return {
     mouth: world(p.mouth),
-    shoe: along(p.mouth, p.sheathAxis, steelLength + 2, 2.5),
-    rear: along(p.tsuba, axis, -14),
-    grip: along(p.tsuba, axis, -5),
+    shoe: along(p.mouth, p.sheathAxis, weapon.length + 2, 2.5),
+    rear: along(p.tsuba, axis, -weapon.grip),
+    grip: along(p.tsuba, axis, -Math.min(5,weapon.grip * .36)),
     guard: world(p.tsuba),
-    middle: along(p.tsuba, axis, length * 0.55, 0.7 * p.exposed * p.exposed),
-    tip: along(p.tsuba, axis, length, 2.3 * p.exposed * p.exposed),
+    middle: along(p.tsuba, axis, length * 0.55, weapon.curve * .30 * p.exposed * p.exposed),
+    tip: along(p.tsuba, axis, length, weapon.curve * p.exposed * p.exposed),
   };
 }
 function bladeSweep(age, dt, oldX, oldY, previousAim = run.attackDir) {
