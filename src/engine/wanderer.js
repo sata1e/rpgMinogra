@@ -53,15 +53,49 @@ function katanaPose(age) {
     if (run.windAt === move.hold.at) {
       const p = move.hold.pose;
       const elapsed = age-move.hold.begin;
+      if (move.link?.returnFromDraw) {
+        const buffered = Math.max(0,run.attackAt+move.hold.begin-move.hold.at);
+        const lift = ease((elapsed-.055)/Math.max(.08,chargeDuration-buffered-.055));
+        const raised = {...p, tsuba:[1,0,100], yaw:0, pitch:2.53, coil:.12,
+          shift:-3, lateral:move.entry.leadSide*2.5, shrug:3, drop:3, carryReady:0,
+          mouth:[9-.82*3,-14+move.entry.leadSide*2.5,48], supportGrip:1, sheathHold:0};
+        if (lift === 1) return {...raised,heldAttack:true};
+        const pose = blendCutPose(p,raised,lift);
+        // Carry the grip outside the shoulder before bringing it over the crown.
+        const around = Math.sin(Math.PI*lift);
+        pose.tsuba[0] += 7*around;
+        pose.tsuba[1] -= 6*around;
+        return {...pose,heldAttack:true};
+      }
       const lift = ease((elapsed-.075)/(.75*chargeDuration));
       const raised = {...p, tsuba:[5,2,104+weapon.lift], pitch:2.2, yaw:0,
         coil:0, shift:-4, lateral:p.lateral*.5, shrug:4, drop:4};
       return {...blendCutPose(p,raised,lift), heldAttack:true};
     }
   }
+  if (move.link?.overheadFinish && age >= 0 && age < move.duration) return overheadFinishPose(age,move);
   if (move.link?.returnFromDraw && age >= 0 && age < move.duration) return returnCutPose(age,move);
   if (!move.link || age < 0 || age >= move.start) return baseKatanaPose(age);
   return blendCutPose(move.link.pose,baseKatanaPose(move.start),ease(age/move.start));
+}
+function overheadFinishPose(age,move) {
+  const p = move.link.pose;
+  const {entry,start,end,duration} = move;
+  const drive = ease(age/end);
+  const edge = ease((age-start*.4)/(end-start*.4));
+  const plant = ease((age-entry.landAt*.6)/(end-entry.landAt*.6));
+  const settle = ease((age-end)/(duration-end));
+  const shift = mix(mix(p.shift,9,drive),0,settle);
+  const lateral = mix(mix(p.lateral,entry.leadSide*4.5,plant),0,settle);
+  const drop = mix(mix(p.drop,8+4*move.lowAim,plant),0,settle);
+  const hand = blend3(p.tsuba,[29,0,49-12*move.lowAim],drive);
+  hand[0] += 10*Math.sin(Math.PI*drive);
+  return {...p, heldAttack:false, supportGrip:1, sheathHold:0, carryReady:settle,
+    tsuba:blend3(hand,[19,2,57],settle), mouth:[9+.82*shift,-14+lateral,51-drop],
+    yaw:mix(mix(p.yaw,0,ease(age/start)),.16,settle),
+    pitch:mix(mix(p.pitch,-.59-.25*move.lowAim,edge),.67,settle),
+    shift,lateral,drop, coil:mix(p.coil,0,drive), shrug:p.shrug*(1-drive),
+    load:mix(p.load,1,drive)*(1-settle), turn:edge*(1-settle)};
 }
 function blendCutPose(origin,target,t) {
   const next = {...target};

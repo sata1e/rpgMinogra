@@ -516,6 +516,7 @@ function startCut(style, previous = null) {
   const previousAge = run.phase-run.attackAt;
   const link = previous ? {
     returnFromDraw: style === 0 && previous.entry.steppingDraw,
+    overheadFinish: style === 1 && previous.link?.returnFromDraw,
     pose: previous.releasePose ?? katanaPose(previousAge),
     guard: previous.releasePose ? 0 : ease((previousAge-previous.end)/(previous.duration-previous.end)),
     lead: previous.entry.leadSide > 0 ? 0 : 1,
@@ -523,6 +524,12 @@ function startCut(style, previous = null) {
   activeCut = { ...base, cost, duration: base.duration * weapon.tempo,
     start: base.start * weapon.tempo, end: base.end * weapon.tempo,
     damage: base.damage * weapon.tempo, finisher: Boolean(link && style), link };
+  if (link?.overheadFinish) {
+    // The backswing has already played during the hold.
+    activeCut.start = .10;
+    activeCut.end = .36;
+    activeCut.step = 14;
+  }
   run.fromSheath = !run.bladeOut;
   run.bladeOut = true;
   run.bladeChanged = -10;
@@ -568,8 +575,8 @@ function startCut(style, previous = null) {
     landing = contactBeat;
     const side = lead ? 1 : -1;
     const foot = rig.feet[lead];
-    let forward = 16 + base.step*.5;
-    if (link.returnFromDraw) {
+    let forward = 16 + activeCut.step*.5;
+    if (link.returnFromDraw || link.overheadFinish) {
       const planted = rig.feet[1-lead];
       const ahead = (planted.x-rig.x)*Math.cos(yaw)+(planted.z-rig.z)*Math.sin(yaw);
       forward = Math.max(forward,Math.min(29,ahead+9));
@@ -808,7 +815,7 @@ function update(dt) {
   const previousAim = run.attackDir;
   const attackAge = run.phase - run.attackAt;
   const holdingLink = run.windAt !== null && cut().hold?.at === run.windAt;
-  if (attackAge < cut().duration || holdingLink) {
+  if (attackAge < cut().duration || holdingLink || cut().queued !== undefined) {
     const yaw = strikeStartYaw + strikeTurn * ease(attackAge / cut().start);
     run.heading = run.attackDir = { x: Math.cos(yaw), y: Math.sin(yaw) };
   } else if (!rolling && run.phase - run.guardAt >= parryTiming.recover) {
