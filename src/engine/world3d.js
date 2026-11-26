@@ -1608,16 +1608,16 @@ function recordVeil(pixel, depth, surface) {
 const fades = new Map(), opacity = [1], freeFadeIds = [];
 const clearHoldMs = 350;
 let fadeFrame = 0, lastFadeTime;
-function veilId(object, blocked, dynamic = false) {
+function veilId(object, coverage, dynamic = false) {
   let fade = fades.get(object);
   if (!fade) {
-    if (!blocked) return 0;
+    if (!coverage) return 0;
     const id = freeFadeIds.pop() ?? opacity.length;
     opacity[id] = 1;
-    fade = {id, amount:0, blocked, dynamic, seen:fadeFrame, clearSince:null};
+    fade = {id, amount:0, coverage, dynamic, seen:fadeFrame, clearSince:null};
     fades.set(object, fade);
   }
-  fade.blocked = blocked;
+  fade.coverage = coverage;
   fade.seen = fadeFrame;
   return fade.id;
 }
@@ -1625,68 +1625,85 @@ function advanceFades(now, rebuilt) {
   const dt = Math.min(50, Math.max(0, now-(lastFadeTime ?? now)));
   lastFadeTime = now;
   for (const [object,fade] of fades) {
-    if ((rebuilt || fade.dynamic) && fade.seen !== fadeFrame) fade.blocked = false;
-    if (fade.blocked) {
+    if (!fade.dynamic) fade.coverage = sceneryOccluders.get(object.id) ?? 0;
+    if ((rebuilt || fade.dynamic) && fade.seen !== fadeFrame) fade.coverage = 0;
+    if (fade.coverage > 0) {
       fade.clearSince = null;
-      fade.amount = Math.min(1, fade.amount + dt/260);
+      const gap = fade.coverage - fade.amount;
+      const step = gap > 0 ? dt/260 : dt/420;
+      fade.amount += Math.sign(gap)*Math.min(Math.abs(gap),step);
     } else {
       fade.clearSince ??= now;
       const restoringMs = Math.min(dt, Math.max(0, now - fade.clearSince - clearHoldMs));
       fade.amount = Math.max(0, fade.amount - restoringMs/420);
     }
-    opacity[fade.id] = 1 - .87*ease(fade.amount);
-    if (!fade.blocked && fade.amount === 0) {
+    opacity[fade.id] = 1 - .87*(fade.amount + ease(fade.amount))*.5;
+    if (!fade.coverage && fade.amount === 0) {
       fades.delete(object);
       freeFadeIds.push(fade.id);
       if (!fade.dynamic) backdropKey = "";
     }
   }
 }
-const sightPoints = [];
-function updateSight() {
-  const z = roadZ(run.depth), floor = groundHeight(run.pos,z);
-  const low = run.fall || run.phase-run.rollAt < rollDuration;
-  sightPoints.length = 0;
-  for (const height of (low ? [9,36] : [16,54,94])) {
-    sightPoints.push([run.pos,floor+height,z]);
+// Sample across the projected width of each body at several heights. The
+// wider torso has more samples than the head, so a single clipped edge has
+// little influence. Keep fighters separate when measuring the covered fraction.
+const sightBodies = [];
+const bodyRows = [[.17,.54,3], [.43,.79,4], [.69,1,5], [.89,.48,3]];
+function addSightBody(x,z,height,width,tilt,scale) {
+  const points = [], floor = groundHeight(x,z);
+  for (const [level,span,count] of bodyRows) {
+    let h = height*level, cx = x, cz = z;
+    if (tilt?.fall) h = loweredHeight(h,tilt.fall,scale);
+    if (tilt && h > tilt.pivot) {
+      const above = h-tilt.pivot;
+      cx += above*tilt.sin*tilt.nx;
+      cz += above*tilt.sin*tilt.nz;
+      h = tilt.pivot+above*tilt.cos;
+    }
+    for (let i=0; i<count; i++) {
+      const offset = width*span*((2*i+1)/count-1);
+      const px = cx+offset*right[0], pz = cz+offset*right[2];
+      if (actorVisible(px,floor+h,pz,0)) points.push([px,floor+h,pz]);
+    }
   }
+  if (points.length) sightBodies.push(points);
 }
-const sceneryOccluders = new Set();
+const sceneryOccluders = new Map();
 function updateSceneryOccluders() {
   sceneryOccluders.clear();
+  sightBodies.length = 0;
+  const low = run.fall || run.phase-run.rollAt < rollDuration;
+  addSightBody(run.pos,roadZ(run.depth),low ? 40 : 103,low ? 31 : 18,null,1);
   for (const d of guards) {
     if (!combatOpponent(d)) continue;
-    const z = roadZ(d.y), floor = groundHeight(d.x,z);
     const tilt = impactTilt(d, d.type === 0 ? 12 : 24);
-    const height = [50, 96, 106, 125][d.type];
-    for (const level of [.45, .85]) {
-      let h = height*level, x = d.x, depth = z;
-      if (tilt?.fall) h = loweredHeight(h,tilt.fall,d.type === 3 ? 1.17 : 1);
-      if (tilt && h > tilt.pivot) {
-        const above = h-tilt.pivot;
-        x += above*tilt.sin*tilt.nx;
-        depth += above*tilt.sin*tilt.nz;
-        h = tilt.pivot+above*tilt.cos;
-      }
-      if (actorVisible(x,floor+h,depth,0)) sightPoints.push([x,floor+h,depth]);
+    let width = [14,17,23,27][d.type];
+    if (d.type === 0) {
+      const angle = demonFacing(d);
+      width += 22*Math.abs(Math.cos(angle)*right[0] + Math.sin(angle)*right[2]);
     }
+    addSightBody(d.x,roadZ(d.y),[50,96,106,125][d.type],width,tilt,d.type === 3 ? 1.17 : 1);
   }
   // Reject objects outside the volume spanning the eye and all visible fighters
   // before testing individual sight lines against the object's triangles.
   const lo = [...scene.eye], hi = [...scene.eye];
-  for (const point of sightPoints) {
-    for (let axis = 0; axis < 3; axis++) {
-      lo[axis] = Math.min(lo[axis], point[axis]);
-      hi[axis] = Math.max(hi[axis], point[axis]);
+  for (const points of sightBodies) {
+    for (const point of points) {
+      for (let axis = 0; axis < 3; axis++) {
+        lo[axis] = Math.min(lo[axis], point[axis]);
+        hi[axis] = Math.max(hi[axis], point[axis]);
+      }
     }
   }
   for (const mesh of meshes) {
     if (mesh.lo[0] > hi[0] || mesh.hi[0] < lo[0] ||
         mesh.lo[2] > hi[2] || mesh.hi[2] < lo[2] ||
         mesh.lo[1] > hi[1] || mesh.hi[1] < lo[1]) continue;
-    if (blocksView(mesh.lo, mesh.hi, mesh.levels[0].faces)) sceneryOccluders.add(mesh.id);
+    const fraction = coveredFraction(mesh.lo, mesh.hi, mesh.levels[0].faces);
+    if (fraction) sceneryOccluders.set(mesh.id,fraction);
   }
-  return [...sceneryOccluders].join(",");
+  return [...sceneryOccluders.keys()].join(",");
 }
 function intersectsFace(face, dx, dy, dz, near, far) {
   const [a,b,c] = face;
@@ -1704,26 +1721,36 @@ function intersectsFace(face, dx, dy, dz, near, far) {
   const t=(vx*qx+vy*qy+vz*qz)/det;
   return t>=near && t<=far;
 }
-function blocksView(lo,hi,faces,targets = sightPoints) {
-  return targets.some(target => {
-    const dx=target[0]-scene.eye[0], dy=target[1]-scene.eye[1], dz=target[2]-scene.eye[2];
-    const depth=dx*forward[0]+dy*forward[1]+dz*forward[2];
-    if (depth<=8) return false;
-    let enter = 8/depth, leave = .985;
-    for (let axis=0; axis<3; axis++) {
-      const origin=scene.eye[axis], delta=target[axis]-origin;
-      const min=lo[axis]-6, max=hi[axis]+6;
-      if (Math.abs(delta)<.0001) {
-        if (origin<min || origin>max) return false;
-      } else {
-        const a=(min-origin)/delta, b=(max-origin)/delta;
-        enter=Math.max(enter,Math.min(a,b));
-        leave=Math.min(leave,Math.max(a,b));
-        if (enter>leave) return false;
-      }
+function coveredFraction(lo,hi,faces) {
+  let mostCovered = 0;
+  for (const points of sightBodies) {
+    let hits = 0;
+    for (const point of points) {
+      if (surfaceOnRay(lo,hi,faces,point)) hits++;
     }
-    return faces.some(face => intersectsFace(face,dx,dy,dz,enter,leave));
-  });
+    mostCovered = Math.max(mostCovered,hits/points.length);
+    if (mostCovered === 1) break;
+  }
+  return mostCovered;
+}
+function surfaceOnRay(lo,hi,faces,target) {
+  const dx=target[0]-scene.eye[0], dy=target[1]-scene.eye[1], dz=target[2]-scene.eye[2];
+  const depth=dx*forward[0]+dy*forward[1]+dz*forward[2];
+  if (depth<=8) return false;
+  let enter = 8/depth, leave = .985;
+  for (let axis=0; axis<3; axis++) {
+    const origin=scene.eye[axis], delta=target[axis]-origin;
+    const min=lo[axis]-6, max=hi[axis]+6;
+    if (Math.abs(delta)<.0001) {
+      if (origin<min || origin>max) return false;
+    } else {
+      const a=(min-origin)/delta, b=(max-origin)/delta;
+      enter=Math.max(enter,Math.min(a,b));
+      leave=Math.min(leave,Math.max(a,b));
+      if (enter>leave) return false;
+    }
+  }
+  return faces.some(face => intersectsFace(face,dx,dy,dz,enter,leave));
 }
 function raster(a, b, c, m, l, f) {
   const minX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))),
@@ -1834,7 +1861,7 @@ function drawScenery() {
       Math.abs(x * up[0] + y * up[1] + z * up[2]) > halfY * d + sideY * r
     )
       continue;
-    veilObject = mirrorPass ? 0 : veilId(mesh, sceneryOccluders.has(mesh.id));
+    veilObject = mirrorPass ? 0 : veilId(mesh, sceneryOccluders.get(mesh.id) ?? 0);
     const footprint = Math.max(0, d - r) / aspectY;
     const level =
       footprint > 16
@@ -2008,7 +2035,7 @@ function shadows(x, z, rx, rz) {
 }
 function drawProp(object,x,z,radius,height) {
   const base=groundHeight(x,z);
-  veilObject=veilId(object, blocksView([x-radius,base,z-radius],[x+radius,base+height,z+radius],scene.faces), true);
+  veilObject=veilId(object, coveredFraction([x-radius,base,z-radius],[x+radius,base+height,z+radius],scene.faces), true);
   drawFaces(scene.faces);
   scene.faces=[];
   veilObject=0;
@@ -2449,12 +2476,11 @@ function renderWorld() {
     backdropKey = "";
   }
   camera();
-  updateSight();
   const key = [
     ...scene.eye,
     view.cameraYaw,
     view.cameraPitch,
-    view.cameraRange, sightPoints[0][1], updateSceneryOccluders(),
+    view.cameraRange, updateSceneryOccluders(),
   ].join("/");
   fadeFrame++;
   const rebuilt = key !== backdropKey;
