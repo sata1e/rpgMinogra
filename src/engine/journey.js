@@ -1,3 +1,4 @@
+import { displayedYaw } from "./game.js";
 import { W } from "./config.js";
 import { view, resetMouse } from "./game.js";
 import {
@@ -222,7 +223,6 @@ run.windAt = null;
 let releaseLift = 0;
 const struck = new Set();
 run.opponent = null;
-let travelIntent = { x: 0, y: 0 };
 function combatFacing(fallback) {
   if (view.mouseLook) {
     run.opponent = null;
@@ -389,8 +389,8 @@ function ui() {
   const wx = target - run.pos,
     wz = (targetY - run.depth) / depthRatio;
   const horizontal =
-      wx * Math.cos(view.cameraYaw) - wz * Math.sin(view.cameraYaw),
-    vertical = wx * Math.sin(view.cameraYaw) + wz * Math.cos(view.cameraYaw);
+      wx * Math.cos(displayedYaw()) - wz * Math.sin(displayedYaw()),
+    vertical = wx * Math.sin(displayedYaw()) + wz * Math.cos(displayedYaw());
   const arrow = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"][
     (Math.round((Math.atan2(vertical, horizontal) * 4) / Math.PI) + 8) % 8
   ];
@@ -449,6 +449,7 @@ function dodge() {
   spirit -= 19;
   run.dodgeAt = run.phase;
   dodgeFace = face;
+  const travelIntent = movementInput();
   dashDir =
     Math.hypot(travelIntent.x, travelIntent.y) > 0.1
       ? { ...travelIntent }
@@ -495,7 +496,6 @@ function resume() {
     run.bladeOut = false;
     run.bladeChanged = -10;
     run.opponent = null;
-    travelIntent = { x: 0, y: 0 };
     resetScenery();
     spawnGuards();
     fallen.forEach((dead, i) => {
@@ -524,7 +524,6 @@ function resume() {
     run.spent = true;
     won = dead = false;
   }
-  travelIntent = { x: 0, y: 0 };
   modal(false);
   ui();
 }
@@ -579,21 +578,15 @@ function unbalance(d, x, z, strength, level, torque = 0) {
     d.balanceDebt = 0;
   }
 }
-function update(dt) {
-  expireCombatFx();
-  const bodies = startMotion(dt);
-  if (run.phase - Math.max(run.attackAt, run.dodgeAt, run.guardAt) > 0.52)
-    spirit = Math.min(100, spirit + dt * difficulty.breath);
+function movementInput() {
   const move =
     Number(keys.has("KeyD") || keys.has("ArrowRight")) -
     Number(keys.has("KeyA") || keys.has("ArrowLeft"));
-  const dash = run.phase - run.dodgeAt < 0.26,
-    swing = run.phase - run.attackAt < cut().end;
   const vertical =
     Number(keys.has("KeyS") || keys.has("ArrowDown")) -
     Number(keys.has("KeyW") || keys.has("ArrowUp"));
   const norm = Math.hypot(move, vertical);
-  const travel = {
+  return {
     x:
       (move * Math.cos(view.cameraYaw) + vertical * Math.sin(view.cameraYaw)) /
       (norm || 1),
@@ -601,7 +594,16 @@ function update(dt) {
       (vertical * Math.cos(view.cameraYaw) - move * Math.sin(view.cameraYaw)) /
       (norm || 1),
   };
-  travelIntent = travel;
+}
+function update(dt) {
+  expireCombatFx();
+  const bodies = startMotion(dt);
+  if (run.phase - Math.max(run.attackAt, run.dodgeAt, run.guardAt) > 0.52)
+    spirit = Math.min(100, spirit + dt * difficulty.breath);
+  const dash = run.phase - run.dodgeAt < 0.26,
+    swing = run.phase - run.attackAt < cut().end;
+  const travel = movementInput();
+  const norm = travel.x !== 0 || travel.y !== 0;
   const previousAim = run.attackDir;
   run.heading = combatFacing(norm && !dash && !swing ? travel : run.heading);
   face = Math.sign(run.heading.x) || face;
