@@ -300,7 +300,7 @@ function drawSword() {
     run.paused || run.fall ||
     bladeProgress() < 1 ||
     run.windAt !== null ||
-    (run.phase - run.attackAt < cut().duration && (!cut().entry || cut().interrupted || cut().queued !== undefined)) ||
+    (run.phase - run.attackAt < cut().duration && (!cut().entry || cut().finisher || cut().interrupted || cut().queued !== undefined)) ||
     run.phase - run.rollAt < rollDuration ||
     run.phase - run.guardAt < parryTiming.recover && run.phase >= riposteUntil
   )
@@ -332,6 +332,11 @@ function drawSword() {
     return;
   }
   run.windAt = run.phase;
+  const age = run.phase-run.attackAt;
+  if (age < cut().duration && cut().entry) {
+    cut().hold = {at:run.phase, begin:Math.max(age,cut().end),
+      pose:katanaPose(Math.max(age,cut().end))};
+  }
 }
 function whisper(message) {
   feedback = message;
@@ -476,12 +481,17 @@ function interact() {
 function attack(requestedStyle) {
   if (run.windAt === null) return;
   const held = run.phase - run.windAt;
+  const continuation = cut().hold?.at === run.windAt && run.attackAt >= 0;
+  const age = run.phase-run.attackAt;
+  const releasePose = continuation && age >= cut().hold.begin ? katanaPose(age) : null;
   run.windAt = null;
   if (run.paused || run.fall) return;
   const style = requestedStyle ?? (held >= chargeDuration ? 1 : 0);
-  const age = run.phase-run.attackAt;
-  if (age < cut().duration && cut().entry) {
-    if (!cut().interrupted && cut().queued === undefined) cut().queued = style;
+  if ((continuation || age < cut().duration) && cut().entry) {
+    if (!cut().interrupted && cut().queued === undefined) {
+      cut().queued = style;
+      cut().releasePose = releasePose ?? cut().hold?.pose;
+    }
     return;
   }
   startCut(style);
@@ -490,26 +500,30 @@ function startCut(style, previous = null) {
   const base = (run.bladeOut ? readyCuts : cuts)[style];
   const cost = Math.round(base.cost * weapon.tempo);
   if (spirit < cost) {
+    if (previous) delete previous.releasePose;
     whisper("Недостаточно выносливости");
     return;
   }
   const previousAge = run.phase-run.attackAt;
   const link = previous ? {
-    pose: katanaPose(previousAge),
-    guard: ease((previousAge-previous.end)/(previous.duration-previous.end)),
+    pose: previous.releasePose ?? katanaPose(previousAge),
+    guard: previous.releasePose ? 0 : ease((previousAge-previous.end)/(previous.duration-previous.end)),
     lead: previous.entry.leadSide > 0 ? 0 : 1,
   } : null;
   activeCut = { ...base, cost, duration: base.duration * weapon.tempo,
     start: base.start * weapon.tempo, end: base.end * weapon.tempo,
-    damage: base.damage * weapon.tempo, link };
+    damage: base.damage * weapon.tempo, finisher: Boolean(link && style), link };
   run.fromSheath = !run.bladeOut;
   run.bladeOut = true;
   run.bladeChanged = -10;
-  run.slashSide = -run.slashSide;
+  // A draw cut has its own direction regardless of the preceding free swing.
+  run.slashSide = previous ? -previous.swingSide : -run.slashSide;
+  activeCut.swingSide = run.fromSheath ? 1 : run.slashSide;
   run.cleanAt = -10;
   run.combo = style;
   if (!style) {
-    run.lightVariant = nextLight;
+    run.lightVariant = previous ? (previous.variant === 0 ? 1 : previous.variant === 1 ? 0 : 2) : nextLight;
+    activeCut.variant = run.fromSheath ? 0 : run.lightVariant;
     nextLight = (nextLight + 1) % 3;
   }
   struck.clear();
@@ -778,7 +792,8 @@ function update(dt) {
   const norm = travel.x !== 0 || travel.y !== 0;
   const previousAim = run.attackDir;
   const attackAge = run.phase - run.attackAt;
-  if (attackAge < cut().duration) {
+  const holdingLink = run.windAt !== null && cut().hold?.at === run.windAt;
+  if (attackAge < cut().duration || holdingLink) {
     const yaw = strikeStartYaw + strikeTurn * ease(attackAge / cut().start);
     run.heading = run.attackDir = { x: Math.cos(yaw), y: Math.sin(yaw) };
   } else if (!rolling && run.phase - run.guardAt >= parryTiming.recover) {
@@ -820,6 +835,10 @@ function update(dt) {
   const travelSpeed = rolling || swing ? speed :
     mix(relaxedSpeed, Math.min(speed, guardSpeed), combatStance());
   let vx = direction.x * travelSpeed, vz = direction.y * travelSpeed;
+  if (!rolling && !swing && holdingLink) {
+    vx = 0;
+    vz = 0;
+  }
   const entry = cut().entry;
   if (!rolling && entry && attackAge < cut().duration) {
     if (swing) {

@@ -1129,7 +1129,7 @@ function ronin() {
   const age = run.phase - run.attackAt,
     fall = groundPose?.fall,
     p = fall ? { ...run.fall.pose } : katanaPose(age),
-    dir = fall ? run.fall.heading : age < cut().duration ? run.attackDir : run.heading;
+    dir = fall ? run.fall.heading : age < cut().duration || p.heldAttack ? run.attackDir : run.heading;
   if (fall) {
     p.drop += fall.drop;
     p.mouth = [...p.mouth];
@@ -1154,9 +1154,9 @@ function ronin() {
   }
   const rig = heroMotion.feet;
   const move = cut();
-  const inCut = age >= 0 && age < move.duration;
+  const inCut = p.heldAttack || (age >= 0 && age < move.duration);
   const entering = inCut && move.entry ? (1-ease(age/move.start))*(move.link?.guard ?? 1) : 0;
-  const recovering = inCut && move.entry ? ease((age-move.end)/(move.duration-move.end)) : 0;
+  const recovering = inCut && !p.heldAttack && move.entry ? ease((age-move.end)/(move.duration-move.end)) : 0;
   const gaitBlend = groundPose || run.phase-run.guardAt <= .5 ? 0 :
     inCut ? entering+recovering : 1;
   const walking = rig ? motion.stride*gaitBlend : 0;

@@ -1,5 +1,5 @@
 import { loweredHeight } from "./demon-fall.js";
-import { parryTiming, riposteWindow } from "./combat-timing.js";
+import { chargeDuration, parryTiming, riposteWindow } from "./combat-timing.js";
 import { groundHeight } from "./valley.js";
 import { weapon } from "./weapons.js";
 import { bladeProgress, cut, run, depthRatio, trackY } from "./journey.js";
@@ -47,10 +47,22 @@ function ripostePose(age, move) {
 }
 function katanaPose(age) {
   const move = cut();
+  if (move.hold && age >= move.hold.begin && !move.interrupted && run.attackAt >= 0) {
+    if (move.queued !== undefined && move.releasePose) return {...move.releasePose, heldAttack:true};
+    if (run.windAt === move.hold.at) {
+      const p = move.hold.pose;
+      const elapsed = age-move.hold.begin;
+      const lift = ease((elapsed-.075)/(.75*chargeDuration));
+      const raised = {...p, tsuba:[5,2,104+weapon.lift], pitch:2.2, yaw:0,
+        coil:0, shift:-4, lateral:p.lateral*.5, shrug:4, drop:4};
+      return {...blendCutPose(p,raised,lift), heldAttack:true};
+    }
+  }
   if (!move.link || age < 0 || age >= move.start) return baseKatanaPose(age);
-  const origin = move.link.pose;
-  const next = baseKatanaPose(move.start);
-  const t = ease(age/move.start);
+  return blendCutPose(move.link.pose,baseKatanaPose(move.start),ease(age/move.start));
+}
+function blendCutPose(origin,target,t) {
+  const next = {...target};
   for (const key of ["mouth","tsuba"]) next[key] = blend3(origin[key],next[key],t);
   for (const key of ["shift","drop","coil","load","lateral","shrug","turn","reach","exposed","supportGrip","carryReady"]) {
     next[key] = mix(origin[key],next[key],t);
@@ -138,8 +150,8 @@ function baseKatanaPose(age) {
         2 + lateral + side * 2 * Math.sin(Math.PI * strike),
         75 + weapon.lift - drop + shrug + 28 * Math.sin(armAngle),
       ];
-      arcYaw = side * 0.12;
-      arcPitch = mix(3.86, -0.41, edge);
+      arcYaw = move.finisher ? 0 : side * 0.12;
+      arcPitch = mix(move.finisher ? 2.2 : 3.86, -0.41, edge);
     } else {
       // Each row defines grip height and edge pitch at the two ends of the cut.
       const profile = lightArcs[run.fromSheath ? 0 : run.lightVariant];
@@ -151,7 +163,7 @@ function baseKatanaPose(age) {
       arcYaw = side * weapon.arc * mix(-1.72, 1.48, edge);
       arcPitch = mix(profile.fromPitch, profile.toPitch, edge);
     }
-    if (!run.combo && weapon.thrust && run.lightVariant === 0) {
+    if (!run.combo && !move.link && weapon.thrust && run.lightVariant === 0) {
       arcHand = [mix(12, 36, strike) + shift, lateral + side * 4, mix(62, 55, strike) - drop];
       arcYaw = side * mix(-0.35, 0.02, strike);
       arcPitch = mix(0.22, -0.11, strike);

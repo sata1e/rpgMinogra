@@ -81,7 +81,7 @@ function advanceFeet(b, dt) {
     rig.time = rig.duration;
     return;
   }
-  if ((entry || (hero && cut().queued !== undefined && run.attackAt >= 0)) && rig.time >= rig.duration) return;
+  if ((entry || (hero && (cut().queued !== undefined || (run.windAt !== null && cut().hold?.at === run.windAt)) && run.attackAt >= 0)) && rig.time >= rig.duration) return;
   if (rig.time >= rig.duration) {
     let error = 0;
     rig.feet.forEach((f, i) => {
