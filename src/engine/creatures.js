@@ -306,7 +306,7 @@ function mournerModel(d, load, fall) {
   // Thin vermilion tear marks on the pale spirit mask.
   for (const side of [-1, 1])
     rod([15.8, y + 72, side * 3.5], [15, y + 68, side * 3], 0.72, 4, true);
-  if (d.wind >= 0) {
+  if (d.wind >= 0 && d.hp>0) {
     place(d.aimX, roadZ(d.aimY));
     for (let i = 0; i < 18; i++) {
       const a = (i * Math.PI) / 9;
@@ -400,6 +400,7 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
         6,
       );
     }
+    const firstArmFace = scene.faces.length;
     const active = s === (boss && pose.reverse ? -1 : 1);
     const { hand, elbow, tip } = active
       ? weaponArm(s, pose, boss, breath, contact, bind)
@@ -475,6 +476,8 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
       }
       ovalMesh(28, 57-sink, -24, 3, 6, 4, 5);
     }
+    if (d.severArm===s)
+      for (let i=firstArmFace;i<scene.faces.length;i++) scene.faces[i].arm=s;
   }
   const headY = shoulder + 12;
   if (boss) {

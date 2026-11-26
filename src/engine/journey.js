@@ -19,7 +19,7 @@ import {
 import { chapterTitle } from "./lettering.js";
 import { motion, ease, katanaPose, weaponGeometry, bladeSweep, swordContact, mix } from "./wanderer.js";
 import { expireCombatFx, sampleBladeTrace, impactFx } from "./combat-fx.js";
-import { roadZ } from "./world3d.js";
+import { roadZ, resetCuts, cutVegetation, severDemon } from "./world3d.js";
 const run = {};
 const trackY = 416;
 const regions = [
@@ -679,6 +679,7 @@ function resetRun() {
   run.bladeChanged = -10;
   run.opponent = null;
   resetScenery();
+  resetCuts();
   spawnGuards();
   run.pos = 350;
   cam = Math.max(0, run.pos - 350);
@@ -916,6 +917,8 @@ function update(dt) {
     cut().impact = {sampleAge, at:age};
     firstTarget.heavyImpactAt = run.phase;
   }
+  cutVegetation(firstContact ? sweep.slice(0,2*(Math.floor(firstContact.i/2)+1)) : sweep,
+    run.combo===1,run.attackDir);
   sampleBladeTrace(age);
   for (const d of guards) {
     if (!d.hp || !activeGuard(d)) continue;
@@ -946,6 +949,7 @@ function update(dt) {
       } else {
         const damage = (counter ? 3 : cut().damage) * difficulty.outgoing;
         d.hp = Math.max(0, d.hp - damage);
+        if (!d.hp) severDemon(d,contact,run.attackDir,run.combo===1);
         d.flash = run.phase;
         if (counter) run.spent = true;
         // Compare the same point along the blade in adjacent sweep samples.
@@ -979,7 +983,7 @@ function update(dt) {
           health = Math.min(100, health + difficulty.heal);
           run.cleanAt = run.attackAt + cut().duration;
           if (guards.every((enemy) => !enemy.hp)) {
-            victoryAt = run.phase + (cut().link?.overheadFinish ? .32 : 0);
+            victoryAt = run.phase + (d.severed ? 1.1 : cut().link?.overheadFinish ? .32 : 0);
           }
           continue;
         }

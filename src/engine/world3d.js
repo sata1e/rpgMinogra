@@ -1,5 +1,6 @@
 import { knockdownPose, loweredHeight, impactDrop } from "./demon-fall.js";
 import { fallPose } from "./death.js";
+import { splitFaces, bladeIntersection } from "./cutting.js";
 import { attackPhases } from "./enemy-attacks.js";
 import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
@@ -148,9 +149,11 @@ function place(x, z, rot = 0, scale = 1, base = groundHeight(x,z)) {
   scene.unit = scale;
 }
 let groundPose = null, shoePitch = null;
+let cutCoordinates = null;
 let bodyTilt = null,
   torsoPose = null;
 function worldPoint([x, y, z]) {
+  const local = cutCoordinates && [x,y,z];
   if (shoePitch) {
     const f=x-shoePitch.x, h=y-shoePitch.y;
     x=shoePitch.x+f*shoePitch.cos-h*shoePitch.sin;
@@ -202,7 +205,9 @@ function worldPoint([x, y, z]) {
     if (groundPose.bodyContact) groundPose.lowest = Math.min(groundPose.lowest, height);
     return vertex;
   }
-  return [origin[0] + dx, origin[1] + height, origin[2] + dz];
+  const vertex = [origin[0] + dx, origin[1] + height, origin[2] + dz];
+  if (local) cutCoordinates.set(vertex,local);
+  return vertex;
 }
 function triangle(a, b, c, m, detail = false, glow = 0) {
   const ux = b[0] - a[0],
@@ -298,14 +303,19 @@ function model(x, z, draw, r = 170, scale = 1) {
   scene.faces = [];
   place(x, z, 0, scale);
   draw();
+  const mesh = {...packFaces(scene.faces), id:meshes.length, x, z};
+  meshes.push(mesh);
+  return mesh;
+}
+function packFaces(faces) {
   const lookup = new Map(),
     vertices = [],
-    triangles = new Uint32Array(scene.faces.length * 3);
+    triangles = new Uint32Array(faces.length * 3);
   const lo = [Infinity, Infinity, Infinity],
     hi = [-Infinity, -Infinity, -Infinity];
-  for (let i = 0; i < scene.faces.length; i++)
+  for (let i = 0; i < faces.length; i++)
     for (let k = 0; k < 3; k++) {
-      const v = scene.faces[i][k];
+      const v = faces[i][k];
       let at = lookup.get(v);
       if (at === undefined) {
         at = vertices.length;
@@ -319,17 +329,15 @@ function model(x, z, draw, r = 170, scale = 1) {
       triangles[i * 3 + k] = at;
     }
   const center = lo.map((v, i) => (v + hi[i]) * 0.5);
-  const full = { vertices, triangles, faces: scene.faces };
+  const full = { vertices, triangles, faces };
   const levels = [0, 3, 8, 18, 40].map((step) =>
     step ? simplifyMesh(full, step) : full,
   );
-  const mesh = {
-    lo, hi, center, id: meshes.length,
+  return {
+    lo, hi, center,
     radius: Math.hypot(hi[0] - center[0], hi[1] - center[1], hi[2] - center[2]),
     levels,
   };
-  meshes.push(mesh);
-  return mesh;
 }
 // Collapse subpixel features into shared vertices for distant scenery and reflections.
 function simplifyMesh(mesh, step) {
@@ -616,20 +624,22 @@ function buildScenery() {
           pz,
           () => {
             for (let k = 0; k < 12; k++) {
+              const first = scene.faces.length;
               const x = noise3() * 45,
                 z = noise3() * 32,
                 h = 45 + noise3() * 67;
               rod([x, 0, z], [x + 9, h, z], 1.5, 6);
               rod([x + 9, h, z], [x + 12, h + 10, z], 2.6, 12);
+              for (let i=first;i<scene.faces.length;i++) scene.faces[i].stem=k;
             }
           },
           130,
-        );
+        ).plant = "reeds";
         continue;
       }
-      if (specimen < 0.12) model(px, pz, pine, 185, 1.55 + noise3() * 0.6);
+      if (specimen < 0.12) model(px, pz, pine, 185, 1.55 + noise3() * 0.6).plant = "tree";
       else if (specimen < 0.86)
-        model(px, pz, cedar, 360, 0.85 + noise3() * 0.5);
+        model(px, pz, cedar, 360, 0.85 + noise3() * 0.5).plant = "tree";
       else
         model(
           px,
@@ -728,12 +738,13 @@ function buildScenery() {
   for (let x = 5740; x < 6700; x += 17) {
     const z = -490 - noise3() * 200;
     if (!clearScenery(x, z, 16)) continue;
-    model(
+    let post;
+    const bamboo = model(
       x,
       z,
       () => {
         const h = 220 + noise3() * 130;
-        addPost(x, z, 3);
+        post=addPost(x,z,3);
         rod([0, 0, 0], [9, h, 3], 3.1, 6);
         for (let j = 2; j < 8; j++) {
           const y = (h * j) / 8;
@@ -750,6 +761,8 @@ function buildScenery() {
       },
       365,
     );
+    bamboo.plant="bamboo";
+    bamboo.post=post;
   }
   // Low roadside clusters vary in scale without covering the playable lane.
   for (let x = -100; x < W; x += 68 + noise3() * 60) {
@@ -760,13 +773,15 @@ function buildScenery() {
       z,
       () => {
         for (let j = 0; j < 7; j++) {
+          const first = scene.faces.length;
           const a = noise3() * 6.28,
             cx = noise3() * 28 - 14,
             cz = noise3() * 12 - 6,
-            h = 7 + noise3() * 15;
+            h = 20 + noise3() * 40;
           const tip = [cx + Math.cos(a) * 8, h, cz + Math.sin(a) * 8];
           panel([[cx - 1, 0, cz], [cx + 2, 0, cz], tip], 13);
           if (j % 3 === 0) rod(tip, [tip[0] + 2, h + 4, tip[2]], 1.4, 12);
+          for (let i=first;i<scene.faces.length;i++) scene.faces[i].stem=j;
         }
         hull(
           [
@@ -778,8 +793,8 @@ function buildScenery() {
           5,
         );
       },
-      38,
-    );
+      65,
+    ).plant = "grass";
   }
   // Reeds, weathered standing stones and tied offerings mark the valley loops.
   for (const [px, pz, rx, rz] of ponds) {
@@ -809,15 +824,17 @@ function buildScenery() {
             }
           }
           for (let k = 0; k < 4; k++) {
+            const first = scene.faces.length;
             const h = 10 + noise3() * 16,
               x = noise3() * 11,
               z = noise3() * 7;
             rod([x, 0, z], [x + 4, h, z], 1.1, 6);
             rod([x + 4, h, z], [x + 6, h + 4, z], 1.5, 12);
+            for (let i=first;i<scene.faces.length;i++) scene.faces[i].stem=k;
           }
         },
         30,
-      );
+      ).plant = "reeds";
     }
   }
   // Loose stones sit partly in the soil on the shoulders of each trail.
@@ -2186,6 +2203,137 @@ function drawForegroundProps() {
   drawInteractives();
   drawFaces(scene.faces);
 }
+const cutPlants = new Map();
+const fragments = [];
+
+export function resetCuts() {
+  for (const [mesh,state] of cutPlants) {
+    Object.assign(mesh,state.original);
+    if (mesh.post) mesh.post.cut=false;
+  }
+  cutPlants.clear();
+  fragments.length=0;
+  backdropKey="";
+}
+
+function releaseFragment(faces, direction, speed, hinge = null) {
+  const points = [...new Set(faces.flatMap(f=>f.slice(0,3)))];
+  if (!points.length) return;
+  const pivot = hinge ?? [0,1,2].map(k=>points.reduce((s,p)=>s+p[k],0)/points.length);
+  const len=Math.hypot(direction.x,direction.y)||1;
+  fragments.push({faces,points,pivot,direction:{x:direction.x/len,y:direction.y/len},speed,hinge,at:run.phase});
+}
+
+function drawFragments() {
+  for (let i=fragments.length-1;i>=0;i--) {
+    const f=fragments[i], t=run.phase-f.at;
+    if (t>1.9) { fragments.splice(i,1); continue; }
+    const [x,y,z]=f.pivot, dir=f.direction;
+    if (!actorVisible(x,y,z,f.hinge?420:150)) continue;
+    if (f.settled) {
+      for (const face of f.settled) scene.faces.push(face);
+      continue;
+    }
+    const tilt=f.hinge ? 1.48*ease(t/1.05) : 1.62*ease(t/.76);
+    const c=Math.cos(tilt), s=Math.sin(tilt);
+    const travel=f.hinge?0:f.speed*Math.min(t,.65);
+    const cx=x+travel*dir.x, cz=z+travel*dir.y;
+    const height=y+(f.hinge?0:24*t-220*t*t);
+    let bottom=Infinity;
+    const moved=new Map();
+    for (const v of f.points) {
+      const up=v[1]-y, along=(v[0]-x)*dir.x+(v[2]-z)*dir.y;
+      const offset=along*(c-1)+up*s;
+      const p=[cx+v[0]-x+dir.x*offset,height+up*c-along*s,cz+v[2]-z+dir.y*offset];
+      bottom=Math.min(bottom,p[1]);
+      moved.set(v,p);
+    }
+    const lift=Math.max(0,groundHeight(cx,cz)-bottom);
+    for (const p of moved.values()) p[1]+=lift;
+    const start=scene.faces.length;
+    for (const [a,b,c,m,l,d] of f.faces)
+      scene.faces.push([moved.get(a),moved.get(b),moved.get(c),m,l,d]);
+    if (t>1.05 && (f.hinge || lift>0)) f.settled=scene.faces.slice(start);
+  }
+}
+
+export function cutVegetation(edges, heavy, direction) {
+  if (!edges.length) return;
+  const floor=groundHeight(run.pos,roadZ(run.depth));
+  const segments=edges.map(edge=>edge.map(p=>[p.x,floor+p.z,p.y-trackY/depthRatio]));
+  for (const mesh of meshes) {
+    if (!mesh.plant || (mesh.plant==="tree" && !heavy) ||
+        Math.abs(mesh.x-run.pos)>145 || Math.abs(mesh.z-roadZ(run.depth))>145) continue;
+    const grouped=mesh.plant==="grass" || mesh.plant==="reeds";
+    let state=cutPlants.get(mesh);
+    if (!grouped && state) continue;
+    const faces=mesh.levels[0].faces, hits=new Map();
+    for (const [a,b] of segments) {
+      if (a.some((v,i)=>Math.max(v,b[i])<mesh.lo[i] || Math.min(v,b[i])>mesh.hi[i])) continue;
+      for (const face of faces) {
+        const group=grouped?face.stem:0;
+        if (group===undefined || hits.has(group) || state?.groups.has(group)) continue;
+        if (mesh.plant==="tree" && ![0,1,21].includes(face[3])) continue;
+        const p=bladeIntersection(a,b,face);
+        if (p && (mesh.plant!=="tree" || Math.hypot(p[0]-mesh.x,p[2]-mesh.z)<20)) hits.set(group,p);
+      }
+    }
+    if (!hits.size) continue;
+    let remaining=faces;
+    for (const [group,p] of hits) {
+      const parts=splitFaces(remaining,v=>v[1]-p[1],mesh.plant==="tree"?2:12,
+        face=>!grouped || face.stem===group);
+      if (!parts.top.length || !parts.base.length) continue;
+      if (!state) {
+        const {lo,hi,center,radius,levels}=mesh;
+        state={original:{lo,hi,center,radius,levels},groups:new Set()};
+        cutPlants.set(mesh,state);
+      }
+      state.groups.add(group);
+      remaining=parts.base;
+      releaseFragment(parts.top,direction,26,grouped?null:[mesh.x,p[1],mesh.z]);
+    }
+    if (remaining!==faces) {
+      Object.assign(mesh,packFaces(remaining));
+      if (mesh.post && mesh.hi[1]-mesh.lo[1]<22) mesh.post.cut=true;
+      backdropKey="";
+    }
+  }
+}
+
+export function severDemon(d,hit,direction,vertical) {
+  const facing=demonFacing(d);
+  const side=Math.sign(-(hit.x-d.x)*Math.sin(facing)+(hit.y-d.y/depthRatio)*Math.cos(facing)) || 1;
+  const head=d.type===0 && hit.level>=.84;
+  const leg=d.type!==1 && hit.level<.25;
+  const localForward=(hit.x-d.x)*Math.cos(facing)+(hit.y-d.y/depthRatio)*Math.sin(facing);
+  const coords=new WeakMap(), saved=scene.faces;
+  scene.faces=[];
+  bodyTilt=impactTilt(d,d.type===0?12:24);
+  cutCoordinates=coords;
+  d.severArm=hit.arm;
+  demon(d);
+  delete d.severArm;
+  cutCoordinates=null;
+  bodyTilt=null;
+  const faces=scene.faces;
+  scene.faces=saved;
+  const parts=hit.arm ? {base:faces.filter(f=>f.arm!==hit.arm),top:faces.filter(f=>f.arm===hit.arm)} : splitFaces(faces,p=>{
+    const [x,y,z]=coords.get(p);
+    if (head) return x-22;
+    if (leg) return (d.type===0?16:26)-y;
+    return vertical ? side*z : y-(d.type===0?32:Math.min(80,Math.max(44,hit.level*95)));
+  },4,face=>!leg || face.slice(0,3).every(p=>{
+    const [x,,z]=coords.get(p);
+    return side*z>0 && (d.type!==0 || x*localForward>=0);
+  }));
+  if (!parts.base.length || !parts.top.length) return false;
+  d.severed=true;
+  releaseFragment(parts.base,direction,9);
+  releaseFragment(parts.top,{x:direction.x*.75-side*Math.sin(facing)*.55,
+    y:direction.y*.75+side*Math.cos(facing)*.55},head?67:48);
+  return true;
+}
 function buildActorFaces() {
   scene.faces=[];
   shadows(run.pos, roadZ(run.depth), 29, 16);
@@ -2231,6 +2379,7 @@ function buildActorFaces() {
   for (let i = 0; i < guards.length; i++) {
     const d = guards[i],
       label = enemyLabels[i];
+    if (d.severed) { label.hidden=true; continue; }
     const falling = d.fellAt !== undefined && run.phase - (d.diedAt ?? d.fellAt) < 1.0;
     const near =
       (d.hp > 0 || falling) && Math.abs(d.x - run.pos) < 1200 && activeGuard(d);
@@ -2266,6 +2415,7 @@ function buildActorFaces() {
     label.lastChild.max = d.max;
     label.lastChild.value = d.hp;
   }
+  drawFragments();
   drawCombatFx();
   return scene.faces;
 }

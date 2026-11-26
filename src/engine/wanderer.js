@@ -468,10 +468,11 @@ function swordContact(edges, d) {
         ];
   const sink = d.type === 0 ? 0 : impactDrop(d,run.phase)*(d.type===3 ? 1.17 : 1);
   let earliest = null;
-  for (const [level, size, forward, centerHeight] of zones) {
+  if (d.type>=2) zones.push([.62,.43,10,undefined,true]);
+  for (const [level, size, forward, centerHeight, arm] of zones) {
     const limb = level < 0.25 && d.type !== 1;
-    for (const side of limb ? [-1, 1] : [0]) {
-      const lateral = side * width * 0.52;
+    for (const side of limb || arm ? [-1, 1] : [0]) {
+      const lateral = side * width * (arm ? 1.28 : .52);
       let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
         y = forward * Math.sin(facing) + lateral * Math.cos(facing),
         z = centerHeight ?? height * level;
@@ -502,7 +503,7 @@ function swordContact(edges, d) {
           pz = a.z + t * dz;
         const dist = Math.hypot(px - x, py - y, pz - z) / (width * size);
         if (dist <= 1 && (!earliest || i < earliest.i || dist < earliest.dist))
-          earliest = { i, t, dist, level, x: px, y: py, z: pz };
+          earliest = { i, t, dist, level, arm:arm ? side : 0, x: px, y: py, z: pz };
       }
     }
   }

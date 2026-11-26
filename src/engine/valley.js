@@ -297,7 +297,9 @@ const jars = [],
 function addPost(x, z, r) {
   const id = Math.floor(x / 100);
   if (!obstacles.has(id)) obstacles.set(id, []);
-  obstacles.get(id).push({ x, z, r });
+  const post={x,z,r};
+  obstacles.get(id).push(post);
+  return post;
 }
 function terrainSpeed(x, z) {
   return groundKind(x, z) === 2 ? 0.65 : 1;
@@ -434,6 +436,7 @@ function confine(b) {
   const bin = Math.floor(b.x / 100);
   for (let k = bin - 1; k <= bin + 1; k++)
     for (const p of obstacles.get(k) || []) {
+      if (p.cut) continue;
       const dx = b.x - p.x,
         dz = b.z - p.z,
         r = b.r + p.r;
