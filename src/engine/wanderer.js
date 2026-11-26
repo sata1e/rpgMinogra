@@ -1,9 +1,6 @@
-import { loweredHeight, impactDrop } from "./demon-fall.js";
 import { chargeDuration, parryTiming, riposteWindow } from "./combat-timing.js";
-import { groundHeight } from "./valley.js";
 import { weapon } from "./weapons.js";
-import { bladeProgress, cut, run, depthRatio, trackY } from "./journey.js";
-import { impactTilt, demonFacing, demonAttackPose, houndBackHeight } from "./world3d.js";
+import { bladeProgress, cut, run, depthRatio } from "./journey.js";
 const motion = {};
 motion.gait = 0;
 motion.stride = 0;
@@ -439,85 +436,10 @@ function edgeHits([a, b], d) {
 }
 // Hit volumes share the lean of the rendered body. Returned coordinates use the
 // blade convention (x and y on the ground, z above it).
-function swordContact(edges, d) {
-  const height = [54, 100, 108, 127][d.type],
-    width = [16, 13, 17, 21][d.type];
-  const tilt = impactTilt(d, d.type === 0 ? 12 : 24);
-  const elevation = groundHeight(d.x,(d.y-trackY)/depthRatio) - groundHeight(run.pos,(run.depth-trackY)/depthRatio);
-  const facing = demonFacing(d);
-  let back = 32, chest = 0;
-  if (d.type === 0) {
-    const { load, snap } = demonAttackPose(d);
-    back = houndBackHeight(d, load, snap);
-    if (tilt?.fall) chest = 6 * tilt.fall.brace * Math.min(1, tilt.fall.rise * 4);
-  }
-  const zones = d.type === 0
-      ? [
-          [.2, .47, -21, 11], [.2, .47, 14, 11],
-          [.23, .4, -20, back-10], [.23, .4, 13, back-10],
-          [.58, .72, -22, back + 2], [.6, .64, -9, back + 1],
-          [.65, .86, 3, back + 2], [.72, .85, 14, back + 4 + chest],
-          [.84, .59, 23, back + 11 + chest], [.91, .56, 30, back + 14 + chest],
-          [.94, .37, 39, back + 10 + chest],
-        ]
-      : [
-          [0.19, 0.77, 0],
-          [0.4, 0.93, 0],
-          [0.59, 1.02, 0],
-          [0.76, 1.12, 0],
-          [0.92, 0.75, 2],
-        ];
-  const sink = d.type === 0 ? 0 : impactDrop(d,run.phase)*(d.type===3 ? 1.17 : 1);
-  let earliest = null;
-  if (d.type>=2) zones.push([.62,.43,10,undefined,true]);
-  for (const [level, size, forward, centerHeight, arm] of zones) {
-    const limb = level < 0.25 && d.type !== 1;
-    for (const side of limb || arm ? [-1, 1] : [0]) {
-      const paw = d.type===0 && limb ? (side>0?2:0)+(forward>0?1:0) : null;
-      if ((arm && d.missingArms?.has(side)) || (paw!==null && d.missingPaws?.has(paw))) continue;
-      const lateral = side * width * (arm ? 1.28 : .52);
-      let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
-        y = forward * Math.sin(facing) + lateral * Math.cos(facing),
-        z = centerHeight ?? height * level;
-      z -= sink*Math.min(1,level/.45);
-      if (tilt?.fall) z = loweredHeight(z, tilt.fall, d.type === 3 ? 1.17 : 1);
-      if (tilt && z > tilt.pivot) {
-        const h = z - tilt.pivot,
-          along = x * tilt.nx + y * tilt.nz,
-          off = along * (tilt.cos - 1) + h * tilt.sin;
-        x += tilt.nx * off;
-        y += tilt.nz * off;
-        z = Math.max(1, tilt.pivot + h * tilt.cos - along * tilt.sin);
-      }
-      z += elevation;
-      x += d.x;
-      y += d.y / depthRatio;
-      for (let i = 0; i < edges.length && (!earliest || i <= earliest.i); i++) {
-        const [a, b] = edges[i],
-          dx = b.x - a.x,
-          dy = b.y - a.y,
-          dz = b.z - a.z;
-        const t = clamp01(
-          ((x - a.x) * dx + (y - a.y) * dy + (z - a.z) * dz) /
-            (dx * dx + dy * dy + dz * dz || 1),
-        );
-        const px = a.x + t * dx,
-          py = a.y + t * dy,
-          pz = a.z + t * dz;
-        const dist = Math.hypot(px - x, py - y, pz - z) / (width * size);
-        if (dist <= 1 && (!earliest || i < earliest.i || dist < earliest.dist))
-          earliest = { i, t, dist, level, paw, arm:arm ? side : 0, x: px, y: py, z: pz };
-      }
-    }
-  }
-  return earliest;
-}
-
 export {
   motion,
   ease,
   bladeSweep,
-  swordContact,
   mix,
   weaponGeometry,
   katanaPose,

@@ -101,6 +101,16 @@ function fallingFoot(d, index, pattern, fall) {
     foot[1] * (1 - blend), foot[2] + (pattern[index][1] - foot[2]) * blend];
 }
 // The same cross-section closes the detached limb and the animated attachment.
+// The retained mesh is stored relative to the moving shoulder or hip.
+function drawStump(faces,anchor) {
+  const moved=new Map();
+  function vertex(p) {
+    if (!moved.has(p)) moved.set(p,worldPoint(p.map((v,k)=>v+anchor[k])));
+    return moved.get(p);
+  }
+  for (const [a,b,c,m,,detail] of faces) triangle(vertex(a),vertex(b),vertex(c),m,detail);
+}
+
 function jointSection(x,y,z,r,side) {
   let outer=Array.from({length:8},(_,i)=>{
     const a=i*Math.PI/4;
@@ -148,7 +158,9 @@ function houndModel(d, load, snap, fall, sampleLunge) {
   for (const s of [-1, 1]) {
     for (const front of [false, true]) {
       const index = (s > 0 ? 2 : 0) + (front ? 1 : 0);
+      const anchor=[front?13:-20,h+2+(front?chest:0),s*8];
       if (d.missingPaws?.has(index)) {
+        if (d.stumps?.has(index)) { drawStump(d.stumps.get(index),anchor); continue; }
         ovalMesh(front?13:-20,h-1,s*8,4,4.5,3.6,4);
         jointSection(front?13:-20,h-5.3,s*8,3.3,false);
         continue;
@@ -184,8 +196,8 @@ function houndModel(d, load, snap, fall, sampleLunge) {
           3,
           4,
         );
-      if (d.severPaw===index) {
-        jointSection(front?13:-20,h+2+(front?chest:0)+.2,s*8,4.7,false);
+      if (d.cutAnchors) {
+        d.cutAnchors.set(index,worldPoint(anchor));
         for (let i=firstPawFace;i<scene.faces.length;i++) scene.faces[i].paw=index;
       }
     }
@@ -333,7 +345,7 @@ function mournerModel(d, load, fall) {
   // Thin vermilion tear marks on the pale spirit mask.
   for (const side of [-1, 1])
     rod([15.8, y + 72, side * 3.5], [15, y + 68, side * 3], 0.72, 4, true);
-  if (d.wind >= 0 && d.hp>0) {
+  if (!d.cutAnchors && d.wind >= 0 && d.hp>0) {
     place(d.aimX, roadZ(d.aimY));
     for (let i = 0; i < 18; i++) {
       const a = (i * Math.PI) / 9;
@@ -428,7 +440,9 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
       );
     }
     const firstArmFace = scene.faces.length;
+    const anchor=[surge,shoulder-2,s*16];
     if (d.missingArms?.has(s)) {
+      if (d.stumps?.has(s)) { drawStump(d.stumps.get(s),anchor); continue; }
       ovalMesh(surge,shoulder-2,s*15,5,5.5,3.5,plate);
       jointSection(surge,shoulder-2,s*18.5,4.7,true);
       continue;
@@ -485,6 +499,7 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
         true,
       );
     ovalMesh(...hand, 4.6, 4.5, 4, 2);
+    const equipmentStart=scene.faces.length;
     if (s === 1 || boss) {
       warBlade(hand, tip);
       if (active && d.wind >= 0 && pose.strike > 0 && pose.strike < .5) {
@@ -511,8 +526,9 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
       }
       ovalMesh(28+shove, 57-sink, -24, 3, 6, 4, 5);
     }
-    if (d.severArm===s) {
-      jointSection(surge-1,shoulder-2,s*9.1,5.2,true);
+    if (d.cutAnchors) {
+      d.cutAnchors.set(s,worldPoint(anchor));
+      for (let i=equipmentStart;i<scene.faces.length;i++) scene.faces[i].equipment=true;
       for (let i=firstArmFace;i<scene.faces.length;i++) scene.faces[i].arm=s;
     }
   }

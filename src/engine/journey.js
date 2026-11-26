@@ -17,9 +17,9 @@ import {
   resolveContacts,
 } from "./valley.js";
 import { chapterTitle } from "./lettering.js";
-import { motion, ease, katanaPose, weaponGeometry, bladeSweep, swordContact, mix } from "./wanderer.js";
+import { motion, ease, katanaPose, weaponGeometry, bladeSweep, mix } from "./wanderer.js";
 import { expireCombatFx, sampleBladeTrace, impactFx } from "./combat-fx.js";
-import { roadZ, resetCuts, cutVegetation, severDemon } from "./world3d.js";
+import { roadZ, resetCuts, cutWorldObjects, fragmentAim, swordContact, severDemon } from "./world3d.js";
 const run = {};
 const trackY = 416;
 const regions = [
@@ -597,7 +597,7 @@ function startCut(style, previous = null) {
   activeCut.entry = {vx:velocity, vz:depthVelocity, steppingDraw, leadSide:lead ? 1 : -1,
     landAt:Math.min(landing,contactBeat), footRate:Math.max(1,landing/contactBeat)};
   let nearest = weapon.length + base.step + 58;
-  activeCut.lowAim = 0;
+  activeCut.lowAim = fragmentAim(yaw,nearest);
   for (const d of guards) {
     if (!d.hp || !activeGuard(d)) continue;
     const dx = d.x - run.pos, dz = (d.y - run.depth) / depthRatio;
@@ -921,7 +921,7 @@ function update(dt) {
     cut().impact = {sampleAge, at:age};
     firstTarget.heavyImpactAt = run.phase;
   }
-  cutVegetation(sweep,run.attackDir,
+  cutWorldObjects(sweep,run.attackDir,
     firstContact ? 2*(Math.floor(firstContact.i/2)+1) : sweep.length);
   sampleBladeTrace(age);
   for (const d of guards) {
@@ -958,7 +958,7 @@ function update(dt) {
         const damage = (counter ? 3 : cut().damage) * difficulty.outgoing;
         d.hp = Math.max(0, d.hp - damage);
         const lostLimb = (!d.hp || contact.arm || contact.paw!=null) &&
-          severDemon(d,contact,run.attackDir,run.combo===1);
+          severDemon(d,contact,run.attackDir);
         d.flash = run.phase;
         if (counter) run.spent = true;
         // Compare the same point along the blade in adjacent sweep samples.

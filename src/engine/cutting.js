@@ -6,9 +6,9 @@ export function isTimber(material) {
   return material===0 || material===1 || woodSection.includes(material);
 }
 // Faces use world coordinates [x, height, z] followed by their material and shading.
-export function splitFaces(faces, distance, capMaterial, eligible = () => true) {
+export function splitFaces(faces, distance, capMaterial, eligible = () => true, local = null) {
   const base = [], top = [], seams = [];
-  let woodRings=0;
+  let woodRings=0, rings=0;
   let woodBelow=false, woodAbove=false;
   for (const face of faces) {
     if (!eligible(face)) { base.push(face); continue; }
@@ -33,6 +33,7 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
       if (d[i]*d[j]<0) {
         const t=d[i]/(d[i]-d[j]);
         const q=p.map((v,k)=>v+t*(points[j][k]-v));
+        if (local) local.set(q,local.get(p).map((v,k)=>v+t*(local.get(points[j])[k]-v)));
         lower.push(q); upper.push(q); seam.push(q);
       }
     }
@@ -41,7 +42,7 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
     if (seam.length===2) seams.push([...seam,face[3]]);
   }
   if (!base.length || !top.length || (capMaterial===woodSection && !(woodBelow && woodAbove)))
-    return {base,top,woodRings};
+    return {base,top,woodRings,rings};
   // Close each ring independently, including when the same plane crosses both arms.
   const key = p=>p.map(v=>Math.round(v*1000)).join(',');
   const links = new Map();
@@ -73,8 +74,10 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
       return Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])>1e-6;
     });
     if (corners.length<3) continue;
+    rings++;
     if (layers===woodSection) woodRings++;
     const center=[0,1,2].map(k=>corners.reduce((s,v)=>s+v[k],0)/corners.length);
+    if (local) local.set(center,[0,1,2].map(k=>corners.reduce((sum,v)=>sum+local.get(v)[k],0)/corners.length));
     const add=(a,b,c,m)=>{
       base.push([a,b,c,m,5,true]);
       top.push([c,b,a,m,5,true]);
@@ -83,6 +86,7 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
     layers.forEach((material,j)=>{
       const radius=(layers.length-1-j)/layers.length;
       const inner=corners.map(p=>p.map((v,k)=>center[k]+(v-center[k])*radius));
+      if (local) inner.forEach((v,i)=>local.set(v,local.get(center).map((c,k)=>c+(local.get(corners[i])[k]-c)*radius)));
       outer.forEach((a,i)=>{
         const k=(i+1)%outer.length;
         add(a,outer[k],radius?inner[k]:center,material);
@@ -91,15 +95,15 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
       outer=inner;
     });
   }
-  return {base,top,woodRings};
+  return {base,top,woodRings,rings};
 }
 
-export function swingNormal(segment, neighbor, heading) {
+export function swingNormal(segment, neighbor, heading, t=1) {
   const [a,b]=segment;
   const edge=b.map((v,i)=>v-a[i]);
   // The local swept surface is spanned by the edge and its motion between samples.
   const motions=[];
-  if (neighbor) motions.push(b.map((v,i)=>v-neighbor[1][i]),a.map((v,i)=>v-neighbor[0][i]));
+  if (neighbor) motions.push(a.map((v,k)=>(1-t)*(v-neighbor[0][k])+t*(b[k]-neighbor[1][k])),b.map((v,i)=>v-neighbor[1][i]),a.map((v,i)=>v-neighbor[0][i]));
   motions.push([-heading.y,0,heading.x],[0,1,0],[1,0,0]);
   for (const [x,y,z] of motions) {
     const n=[edge[1]*z-edge[2]*y,edge[2]*x-edge[0]*z,edge[0]*y-edge[1]*x];
