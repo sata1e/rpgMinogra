@@ -1,3 +1,4 @@
+import { gravity } from './rigid-body.js';
 import { groundHeight } from "./valley.js";
 import { run, cut, trackY, depthRatio } from "./journey.js";
 import { weaponGeometry, katanaPose, blend3 } from "./wanderer.js";
@@ -38,14 +39,21 @@ function impactFx(actor, hit, dx, dz) {
     const speed = 32 + Math.random() * 92,
       vy = 26 + Math.random() * 68;
     const spark = !actor || i === 0;
-    const land = (vy + Math.sqrt(vy * vy + 600 * Math.max(0, y - groundHeight(x,z) - 1))) / 300;
+    const vx=Math.cos(angle)*speed, vz=Math.sin(angle)*speed;
+    // Intersect the ballistic arc with the terrain at the landing position.
+    const clearance=t=>y+vy*t-.5*gravity*t*t-groundHeight(x+vx*t,z+vz*t)-1;
+    let lo=0, hi=(vy+Math.sqrt(vy*vy+2*gravity*Math.max(0,y)))/gravity+.05;
+    for (let j=0;j<12;j++) {
+      const mid=(lo+hi)*.5;
+      if (clearance(mid)>0) lo=mid; else hi=mid;
+    }
+    const land=hi;
     hitParticles.push({
       at: run.phase,
       x,
       y,
       z,
-      vx: Math.cos(angle) * speed,
-      vz: Math.sin(angle) * speed,
+      vx, vz,
       vy,
       land,
       spark,
@@ -82,10 +90,10 @@ function drawCombatFx() {
         true,
       );
     } else {
-      const y = Math.max(1, p.y + p.vy * t - 150 * t * t);
+      const y = p.y+p.vy*t-.5*gravity*t*t;
       rod(
         [x, y, z],
-        [x - p.vx * 0.026, y - (p.vy - 300 * t) * 0.026, z - p.vz * 0.026],
+        [x - p.vx * 0.026, y - (p.vy - gravity * t) * 0.026, z - p.vz * 0.026],
         p.size,
         p.spark ? 5 : freshBlood,
         true,

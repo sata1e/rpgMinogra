@@ -1,3 +1,4 @@
+import { gravity, createRigidBody, rigidPoint, pointVelocity, stepRigidBody } from './rigid-body.js';
 import { knockdownPose, loweredHeight, impactDrop } from "./demon-fall.js";
 import { fallPose } from "./death.js";
 import { splitFaces, bladeIntersection, swingNormal, woodSection, demonSection, spiritSection, isTimber } from "./cutting.js";
@@ -18,7 +19,7 @@ import {
   buildings,
   bells,
   groundKind,
-  groundHeight,
+  groundHeight, groundGrip,
   borderZ,
   trails,
   ponds,
@@ -2204,7 +2205,7 @@ function drawInteractives() {
     drawProp(j,j.x,roadZ(j.y),15,44);
   }
   for (const s of shards) {
-    place(s.x, s.z);
+    place(s.x,s.z,0,1,0);
     panel(
       [
         [0, s.h, 0],
@@ -2239,7 +2240,7 @@ export function resetCuts() {
   backdropKey="";
 }
 
-function releaseFragment(faces, direction, speed, hinge = null, motion = "loose", kind=null) {
+function releaseFragment(faces, direction, speed, hinge = null, motion = "loose", kind=null, parent=null) {
   const points = [...new Set(faces.flatMap(f=>f.slice(0,3)))];
   if (!points.length) return;
   const pivot = hinge ?? [0,1,2].map(k=>points.reduce((s,p)=>s+p[k],0)/points.length);
@@ -2262,43 +2263,56 @@ function releaseFragment(faces, direction, speed, hinge = null, motion = "loose"
     }
   }
   const radius=points.reduce((r,p)=>Math.max(r,Math.hypot(p[0]-pivot[0],p[1]-pivot[1],p[2]-pivot[2])),0);
-  fragments.push({faces,points,pivot,direction:dir,speed,hinge,maxTilt,motion,at:run.phase,radius,
+  const inherited=parent ? pointVelocity(parent,pivot) : [0,0,0];
+  const spin=speed/Math.max(7,radius)*(motion==="collapse"?2:1.4);
+  const rigid=hinge ? null : createRigidBody(points,pivot,
+    [inherited[0]+dir.x*speed,inherited[1]+(motion==="collapse"?0:16),inherited[2]+dir.y*speed],
+    [(parent?.spin[0]??0)+dir.y*spin,parent?.spin[1]??0,(parent?.spin[2]??0)-dir.x*spin]);
+  // A rooted trunk rotates around its cut edge until the crown reaches the ground.
+  const lever=hinge ? points.reduce((h,p)=>h+Math.max(0,p[1]-hinge[1]),0)/points.length : 0;
+  fragments.push({faces,points,pivot,direction:dir,speed,hinge,maxTilt,angle:0,
+    angularSpeed:speed/Math.max(12,lever),lever,motion,rigid,at:run.phase,radius,
     plant:kind,lastSwing:run.attackAt});
 }
 
-function fragmentFaces(f,t) {
-    if (f.settled) return f.settled;
-    const [x,y,z]=f.pivot, dir=f.direction;
-    const lower=f.motion==="collapse", upper=f.motion==="split";
-    const tilt=f.hinge ? f.maxTilt*ease(t/1.05) : lower ? 1.42*ease((t-.11)/.69) :
-      upper ? 1.9*ease(t/.56)-.16*ease((t-.56)/.18) : 1.62*ease(t/.76);
-    const c=Math.cos(tilt), s=Math.sin(tilt);
-    const travel=f.hinge?0:f.speed*Math.min(t,.65);
-    const cx=x+travel*dir.x, cz=z+travel*dir.y;
-    const height=y+(f.hinge?0:(lower?0:upper?12:24)*t-220*t*t);
-    const buckle=lower ? 7*ease(t/.18)*(1-ease((t-.2)/.45)) : 0;
-    const baseY=lower ? groundHeight(x,z) : 0;
-    let bottom=Infinity;
-    const moved=new Map();
-    for (const v of f.points) {
-      const up=v[1]-y-buckle*clamp01((v[1]-baseY-5)/36), along=(v[0]-x)*dir.x+(v[2]-z)*dir.y;
-      const offset=along*(c-1)+up*s;
-      const p=[cx+v[0]-x+dir.x*offset,height+up*c-along*s,cz+v[2]-z+dir.y*offset];
-      bottom=Math.min(bottom,p[1]);
-      moved.set(v,p);
+export function stepFragments(dt) {
+  for (const f of fragments) {
+    if (f.rigid && !f.rigid.sleeping) {
+      stepRigidBody(f.rigid,dt,groundHeight,groundGrip);
+      f.pose=null;
+    } else if (f.hinge && f.angle<f.maxTilt) {
+      f.angularSpeed+=dt*gravity*Math.sin(f.angle)/Math.max(12,f.lever);
+      f.angle=Math.min(f.maxTilt,f.angle+dt*f.angularSpeed);
     }
-    const lift=f.hinge ? 0 : Math.max(0,groundHeight(cx,cz)-bottom);
-    for (const p of moved.values()) p[1]+=lift;
-    const faces=f.faces.map(([a,b,c,m,l,d])=>[moved.get(a),moved.get(b),moved.get(c),m,l,d]);
-    if (t>1.05 && (f.hinge || lift>0)) f.settled=faces;
-    return faces;
+  }
+}
+
+function fragmentFaces(f) {
+  if (f.settled) return f.settled;
+  if (f.rigid && f.pose) return f.pose;
+  const moved=new Map();
+  if (f.rigid) {
+    for (const p of f.points) moved.set(p,rigidPoint(f.rigid,p,f.pivot));
+  } else {
+    const tilt=f.angle, c=Math.cos(tilt), s=Math.sin(tilt);
+    const [x,y,z]=f.hinge, dir=f.direction;
+    for (const p of f.points) {
+      const up=p[1]-y, along=(p[0]-x)*dir.x+(p[2]-z)*dir.y;
+      const offset=along*(c-1)+up*s;
+      moved.set(p,[p[0]+dir.x*offset,y+up*c-along*s,p[2]+dir.y*offset]);
+    }
+  }
+  const faces=f.faces.map(([a,b,c,m,l,d])=>[moved.get(a),moved.get(b),moved.get(c),m,l,d]);
+  if (f.rigid) f.pose=faces;
+  if (f.rigid?.sleeping || (f.hinge && f.angle>=f.maxTilt)) f.settled=faces;
+  return faces;
 }
 function drawFragments() {
   for (let i=fragments.length-1;i>=0;i--) {
     const f=fragments[i], t=run.phase-f.at;
     if (!f.plant && t>1.9) { fragments.splice(i,1); continue; }
-    if (!actorVisible(...f.pivot,f.radius+100) && !(f.plant && t>1.05)) continue;
-    const faces=fragmentFaces(f,t);
+    if (!actorVisible(...(f.rigid?.center??f.pivot),f.radius+100) && !(f.plant && (f.rigid?.sleeping || (f.hinge && f.angle>=f.maxTilt)))) continue;
+    const faces=fragmentFaces(f);
     if (f.plant && f.settled) {
       const mesh=packFaces(faces);
       meshes.push({...mesh,id:meshes.length,x:mesh.center[0],z:mesh.center[2],plant:f.plant,log:true,lastSwing:f.lastSwing});
@@ -2313,7 +2327,7 @@ export function cutWorldObjects(edges, direction, limit=edges.length) {
   const floor=groundHeight(run.pos,roadZ(run.depth));
   const segments=edges.map(edge=>edge.map(p=>[p.x,floor+p.z,p.y-trackY/depthRatio]));
   const nearbyMoving=fragments.filter(f=>f.plant &&
-    Math.hypot(f.pivot[0]-run.pos,f.pivot[2]-roadZ(run.depth))<f.radius+160);
+    Math.hypot((f.rigid?.center??f.pivot)[0]-run.pos,(f.rigid?.center??f.pivot)[2]-roadZ(run.depth))<f.radius+160);
   for (const mesh of [...meshes,...nearbyMoving]) {
     if (!mesh.plant || mesh.lastSwing===run.attackAt) continue;
     const moving=!!mesh.pivot;
@@ -2325,7 +2339,7 @@ export function cutWorldObjects(edges, direction, limit=edges.length) {
     const grouped=mesh.plant==="grass" || mesh.plant==="reeds";
     let state=cutPlants.get(mesh);
     if (!grouped && !timber && !flesh && state) continue;
-    const faces=moving?fragmentFaces(mesh,run.phase-mesh.at):mesh.levels[0].faces, hits=new Map();
+    const faces=moving?fragmentFaces(mesh):mesh.levels[0].faces, hits=new Map();
     for (let i=0;i<limit;i++) {
       const [a,b]=segments[i];
       if (!moving && a.some((v,i)=>Math.max(v,b[i])<mesh.lo[i] || Math.min(v,b[i])>mesh.hi[i])) continue;
@@ -2342,6 +2356,7 @@ export function cutWorldObjects(edges, direction, limit=edges.length) {
     }
     if (!hits.size) continue;
     let remaining=faces;
+    let parent=mesh.rigid;
     for (const [group,{p,i,t}] of hits) {
       const wood=mesh.plant==="tree" || mesh.plant==="bamboo";
       const normal=wood || flesh ? swingNormal(segments[i],segments[i>=2?i-2:i+2],direction,t) : [0,1,0];
@@ -2369,12 +2384,16 @@ export function cutWorldObjects(edges, direction, limit=edges.length) {
         const foot=[p[0]+offset*normal[0],mesh.lo[1],p[2]+offset*normal[2]];
         if (Math.hypot(foot[0]-mesh.x,foot[2]-mesh.z)<(mesh.plant==="tree"?15:4)) hinge=foot;
       }
-      releaseFragment(parts.top,fallDir,26,rooted || mesh.plant==="bamboo"?hinge:null,"loose",timber || flesh ? mesh.plant : null);
+      parent=mesh.rigid ?? (mesh.hinge && mesh.angle<mesh.maxTilt ? {
+        center:mesh.hinge,velocity:[0,0,0],
+        spin:[mesh.direction.y*mesh.angularSpeed,0,-mesh.direction.x*mesh.angularSpeed],
+      } : null);
+      releaseFragment(parts.top,fallDir,26,rooted || mesh.plant==="bamboo"?hinge:null,"loose",timber || flesh ? mesh.plant : null,parent);
     }
     if (remaining!==faces) {
       if (moving) {
         fragments.splice(fragments.indexOf(mesh),1);
-        releaseFragment(remaining,mesh.direction,9,null,"loose",mesh.plant);
+        releaseFragment(remaining,mesh.direction,9,null,"loose",mesh.plant,parent);
       } else Object.assign(mesh,packFaces(remaining));
       if (mesh.post && mesh.hi[1]-mesh.lo[1]<22) mesh.post.cut=true;
       backdropKey="";
@@ -2393,13 +2412,7 @@ export function fragmentAim(yaw,reach) {
   }
   for (const m of meshes) if (m.plant==="demon" || m.plant==="spirit") consider(m.center);
   for (const f of fragments) if (f.plant==="demon" || f.plant==="spirit") {
-    if (Math.hypot(f.pivot[0]-run.pos,f.pivot[2]-z)>reach+100) continue;
-    const faces=fragmentFaces(f,run.phase-f.at);
-    const lo=[Infinity,Infinity,Infinity], hi=lo.map(v=>-v);
-    for (const face of faces) for (let j=0;j<3;j++) for (let k=0;k<3;k++) {
-      lo[k]=Math.min(lo[k],face[j][k]); hi[k]=Math.max(hi[k],face[j][k]);
-    }
-    consider(lo.map((v,k)=>(v+hi[k])/2));
+    consider(f.rigid.center);
   }
   return aim;
 }

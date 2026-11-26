@@ -1,3 +1,4 @@
+import { gravity } from './rigid-body.js';
 import { loweredHeight } from "./demon-fall.js";
 import { W } from "./config.js";
 
@@ -301,8 +302,14 @@ function addPost(x, z, r) {
   obstacles.get(id).push(post);
   return post;
 }
-function terrainSpeed(x, z) {
-  return groundKind(x, z) === 2 ? 0.65 : 1;
+export function groundGrip(x,z) {
+  const material=groundKind(x,z);
+  return material===1 ? .95 : material===2 ? .48 : .78;
+}
+function terrainSpeed(x,z,dx=0,dz=0) {
+  const length=Math.hypot(dx,dz);
+  const grade=length ? (groundHeight(x+5*dx/length,z+5*dz/length)-groundHeight(x-5*dx/length,z-5*dz/length))/10 : 0;
+  return (groundKind(x,z)===2 ? .65 : 1)*Math.max(.62,Math.min(1.08,1-.86*grade));
 }
 const waterRings = [];
 function resetScenery() {
@@ -378,7 +385,7 @@ function strikePots(sweep) {
       shards.push({
         x: jar.x,
         z: roadZ(jar.y),
-        h: 14 + i * 2,
+        h: groundHeight(jar.x,roadZ(jar.y))+14+i*2,
         vx: Math.cos(a) * 58 + run.attackDir.x * 55,
         vz: Math.sin(a) * 56 + run.attackDir.y * 55,
         vh: 55 + i * 8,
@@ -401,10 +408,11 @@ function startMotion(dt) {
     s.x += s.vx * dt;
     s.z += s.vz * dt;
     s.h += s.vh * dt;
-    s.vh -= 360 * dt;
-    if (s.h < 1) {
-      s.h = 1;
-      s.vh = Math.abs(s.vh) * 0.25;
+    s.vh -= gravity * dt;
+    const floor=groundHeight(s.x,s.z)+1;
+    if (s.h < floor) {
+      s.h = floor;
+      s.vh = s.vh < -20 ? -.25*s.vh : 0;
       s.vx *= 0.6;
       s.vz *= 0.6;
     }
@@ -424,7 +432,7 @@ function startMotion(dt) {
   }
   const result = [body(heroMotion, run.pos, run.depth, 19, 0.72)];
   for (const d of guards)
-    if ((d.hp || run.phase - (d.diedAt ?? d.fellAt) < 1) && activeGuard(d))
+    if ((!d.severed && (d.hp || run.phase - (d.diedAt ?? d.fellAt) < 1)) && activeGuard(d))
       result.push(body(d, d.x, d.y, ...bodySizes[d.type]));
   for (const j of jars) if (!j.broken) result.push(body(j, j.x, j.y, 13, 1.75));
   return result;
@@ -502,7 +510,7 @@ function contactShock(d, x, z, strength) {
 }
 function resolveContacts(snapshot = startMotion(0), dt = 0.01) {
   const bodies = snapshot.filter(
-    (b) => (b.ref.hp !== 0 || run.phase - (b.ref.diedAt ?? b.ref.fellAt) < 1) && !b.ref.broken,
+    (b) => !b.ref.severed && (b.ref.hp !== 0 || run.phase - (b.ref.diedAt ?? b.ref.fellAt) < 1) && !b.ref.broken,
   );
   for (const b of bodies) {
     const r = b.ref,
@@ -513,7 +521,8 @@ function resolveContacts(snapshot = startMotion(0), dt = 0.01) {
     b.vz = (b.z - b.oldZ) / dt + r.kickZ;
     b.x += r.kickX * dt;
     b.z += r.kickZ * dt;
-    const drag = Math.exp(-dt * (groundKind(b.x, b.z) === 2 ? 13 : 8));
+    const grip=groundGrip(b.x,b.z);
+    const drag=Math.exp(-dt*(groundKind(b.x,b.z)===2 ? 10 : (r.fellAt!==undefined ? 4 : 7)*grip));
     r.kickX *= drag;
     r.kickZ *= drag;
     b.span = r.fellAt !== undefined ? collisionSpan(b) : null;
@@ -523,16 +532,18 @@ function resolveContacts(snapshot = startMotion(0), dt = 0.01) {
     const cx = b.x - beforeX,
       cz = b.z - beforeZ,
       correction = Math.hypot(cx, cz);
-    if (correction > 0.001 && (r.recoil || b.span)) {
+    if (correction > 0.001) {
       const nx = cx / correction,
         nz = cz / correction,
         speed = -(nx * b.vx + nz * b.vz);
-      contactShock(r, nx, nz, speed);
+      if (r.recoil || b.span) contactShock(r,nx,nz,speed);
+      const inward=Math.min(0,r.kickX*nx+r.kickZ*nz);
+      r.kickX-=inward*nx;
+      r.kickZ-=inward*nz;
+      if (speed>0) { b.vx+=speed*nx; b.vz+=speed*nz; }
     }
-    if ((beforeX - b.x) * r.kickX > 0) r.kickX *= 0.15;
-    if ((beforeZ - b.z) * r.kickZ > 0) r.kickZ *= 0.15;
   }
-  for (let pass = 0; pass < 256; pass++) {
+  for (let pass = 0; pass < 16; pass++) {
     let overlap = 0;
     for (const b of bodies) confineBody(b);
     for (let i = 0; i < bodies.length; i++)
@@ -568,16 +579,19 @@ function resolveContacts(snapshot = startMotion(0), dt = 0.01) {
           if (closing > 0) {
             if (a.ref.recoil || a.span) contactShock(b.ref, nx, nz, closing);
             if (b.ref.recoil || b.span) contactShock(a.ref, -nx, -nz, closing);
-            const impulse = Math.min(220, closing * 0.72) / (a.inv + b.inv);
+            const impulse=closing/(a.inv+b.inv);
+            const slip=(a.vz-b.vz)*nx-(a.vx-b.vx)*nz;
+            const friction=Math.max(-.32*impulse,Math.min(.32*impulse,slip/(a.inv+b.inv)));
             for (const [body, sign] of [
               [a, -1],
               [b, 1],
             ]) {
-              const j = sign * impulse * body.inv;
-              body.ref.kickX += nx * j;
-              body.ref.kickZ += nz * j;
-              body.vx += nx * j;
-              body.vz += nz * j;
+              const dx=sign*body.inv*(nx*impulse-nz*friction);
+              const dz=sign*body.inv*(nz*impulse+nx*friction);
+              body.ref.kickX+=dx;
+              body.ref.kickZ+=dz;
+              body.vx+=dx;
+              body.vz+=dz;
             }
           }
         }

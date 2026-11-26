@@ -12,14 +12,14 @@ import {
   heroMotion,
   resetScenery,
   startMotion,
-  terrainSpeed,
+  terrainSpeed, groundGrip,
   strikePots,
   resolveContacts,
 } from "./valley.js";
 import { chapterTitle } from "./lettering.js";
 import { motion, ease, katanaPose, weaponGeometry, bladeSweep, mix } from "./wanderer.js";
 import { expireCombatFx, sampleBladeTrace, impactFx } from "./combat-fx.js";
-import { roadZ, resetCuts, cutWorldObjects, fragmentAim, swordContact, severDemon } from "./world3d.js";
+import { roadZ, stepFragments, resetCuts, cutWorldObjects, fragmentAim, swordContact, severDemon } from "./world3d.js";
 const run = {};
 const trackY = 416;
 const regions = [
@@ -760,9 +760,16 @@ function unbalance(d, x, z, strength, level, torque = 0) {
   d.balanceAt = run.phase;
   if (!d.hp && d.diedAt === undefined) d.diedAt = run.phase;
   if (d.fellAt !== undefined) return;
-  const down = !d.hp || d.balanceDebt > 210;
+  const feet=d.feet?.feet;
+  const planted=feet?.filter(f=>f.h<=2) ?? [];
+  const support=feet?.length ? planted.length/feet.length : .7;
+  const grip=groundGrip(d.x,roadZ(d.y));
+  const threshold=210*(.78+.28*support)*(.85+.18*grip);
+  const down=!d.hp || d.balanceDebt>threshold;
   if (down) {
-    d.fallTime = leg ? .37 : high ? .52 : .45;
+    const height=[40,75,85,100][d.type];
+    const fallScale=Math.sqrt(height/75)*Math.max(.75,Math.min(1.12,1.15-strength/900));
+    d.fallTime=Math.max(.24,(leg ? .37 : high ? .52 : .45)*fallScale);
     d.fallFacing = d.feet?.angle ?? Math.atan2((run.depth - d.y) / depthRatio, run.pos - d.x);
     d.fallSide = Math.sign(z * Math.cos(d.fallFacing) - x * Math.sin(d.fallFacing)) || Math.sign(torque) || 1;
   }
@@ -802,6 +809,7 @@ function movementInput() {
   };
 }
 function update(dt) {
+  stepFragments(dt);
   if (run.fall) {
     expireCombatFx();
     settleRecoil(heroMotion, dt);
@@ -881,14 +889,15 @@ function update(dt) {
     }
   }
   const reversing = velocity * vx + depthVelocity * vz < 0;
-  const rate = !norm && !swing ? 2300 : reversing ? 2700 : swing ? 1850 : 1560;
+  const grip=groundGrip(run.pos,roadZ(run.depth));
+  const rate=(swing ? 1850 : !norm || reversing ? 720 : 590)*grip;
   const fraction = Math.min(
     1,
     (rate * dt) / (Math.hypot(vx - velocity, vz - depthVelocity) || 1),
   );
   velocity = rolling ? vx : velocity + (vx - velocity) * fraction;
   depthVelocity = rolling ? vz : depthVelocity + (vz - depthVelocity) * fraction;
-  const drag = terrainSpeed(run.pos, roadZ(run.depth));
+  const drag = terrainSpeed(run.pos, roadZ(run.depth),velocity,depthVelocity);
   const old = run.pos,
     oldY = run.depth;
   run.pos = Math.max(20, Math.min(W - 20, run.pos + velocity * dt * drag));
@@ -1121,13 +1130,28 @@ function update(dt) {
       const step = Math.min(
         length,
         dt *
-          terrainSpeed(d.x, roadZ(d.y)) *
+          terrainSpeed(d.x, roadZ(d.y),vx,vy) *
           (chase ? traits.speed * difficulty.speed : 32)*(d.missingPaws?.size ? .54 : 1),
       );
       d.dir = Math.sign(vx) || d.dir;
-      d.x += (step * vx) / length;
-      d.y += ((step * vy) / length) * depthRatio;
+      d.walkIntent=[step*vx/(dt*length),step*vy/(dt*length)];
     }
+  }
+  for (const b of bodies) {
+    const d=b.ref;
+    if (d.type===undefined) continue;
+    const target=d.walkIntent;
+    d.walkIntent=null;
+    const speed=d.walkVelocity??=[0,0];
+    if (!d.hp || d.fellAt!==undefined || d.wind>=0 || run.phase<d.stunned) {
+      speed.fill(0);
+      continue;
+    }
+    const dx=(target?.[0]??0)-speed[0], dz=(target?.[1]??0)-speed[1];
+    const acceleration=(target?630:880)*groundGrip(d.x,roadZ(d.y))*Math.sqrt(b.inv);
+    const blend=Math.min(1,acceleration*dt/(Math.hypot(dx,dz)||1));
+    speed[0]+=dx*blend; speed[1]+=dz*blend;
+    d.x+=speed[0]*dt; d.y+=speed[1]*dt*depthRatio;
   }
   if (run.phase >= victoryAt) {
     victoryAt = Infinity;

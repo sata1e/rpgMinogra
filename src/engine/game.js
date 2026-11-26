@@ -1,3 +1,4 @@
+import { physicsStep } from './rigid-body.js';
 import {
   resume,
   returnToMenu,
@@ -240,17 +241,20 @@ function bindControls() {
     b.onlostpointercapture = () => keys.delete(b.dataset.key);
   });
 }
+let accumulatedTime=0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - run.last) / 1000);
-  run.last = now;
-  if (!run.paused) {
-    const steps = Math.max(1, Math.ceil(dt * 90));
-    for (let i = 0; i < steps && !run.paused; i++) {
-      const frozen = Math.min(run.impactPause, dt / steps);
-      run.impactPause -= frozen;
-      const tick = dt / steps - frozen;
-      if (tick > 0) {
-        run.phase += tick;
+  const elapsed=run.last ? Math.max(0,(now-run.last)/1000) : 0;
+  run.last=now;
+  if (run.paused) accumulatedTime=0;
+  else {
+    accumulatedTime+=Math.min(elapsed,.10);
+    while (accumulatedTime+1e-10>=physicsStep && !run.paused) {
+      accumulatedTime-=physicsStep;
+      const frozen=Math.min(run.impactPause,physicsStep);
+      run.impactPause-=frozen;
+      const tick=physicsStep-frozen;
+      if (tick>0) {
+        run.phase+=tick;
         update(tick);
       }
     }
