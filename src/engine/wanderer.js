@@ -23,6 +23,7 @@ const bladeAxis = (yaw, pitch) => [
   Math.sin(yaw) * Math.cos(pitch),
   Math.sin(pitch),
 ];
+const carryYaw = -2.93, carryPitch = -.23;
 const lightArcs = [
   {high: 74, low: 48, fromPitch: 0.62, toPitch: -0.48},
   {high: 45, low: 72, fromPitch: -0.66, toPitch: 0.55},
@@ -73,10 +74,53 @@ function blendCutPose(origin,target,t) {
   }
   return next;
 }
+// A walking draw follows the current footfall. Keep the tip in the mouth
+// until clearance; carry the outward velocity of the grip into the cut.
+function steppingDraw(age, move) {
+  const {start, end, duration, entry} = move;
+  const clear = start * .77;
+  const graspAt = start*.18;
+  const reach = ease(age/graspAt);
+  const pull = clamp01((age-graspAt)/(clear-graspAt));
+  const retreat = Math.max(weapon.length*.2,sheathTravel());
+  const exitSlope = .24;
+  const exposed = ease(pull) + exitSlope*pull*pull*(pull-1);
+  const sweep = clamp01((age-clear)/(end-clear));
+  const arc = ease(sweep);
+  const settle = ease((age-end)/(duration-end));
+  const planted = ease((age-entry.landAt)/Math.max(.04,end-entry.landAt));
+  const load = ease(age/clear)*(1-settle);
+  const lateral = entry.leadSide*load*mix(-1.6,4.8,planted);
+  const shift = load*mix(-2,7,planted);
+  const drop = load*(2+2*planted);
+  const axis = bladeAxis(carryYaw,carryPitch);
+  const slide = retreat*exposed*(1-settle);
+  const mouth = [9+shift*.82,-14+lateral,51-drop].map((v,i)=>v+axis[i]*slide);
+  const drawn = mouth.map((v,i)=>v-axis[i]*weapon.length*exposed);
+  drawn[2] -= weapon.curve*exposed*exposed;
+  // A short tangent at clearance rounds the path without a second wind-up.
+  const follow = exitSlope*(end-clear)/(clear-graspAt)*sweep*(1-sweep)*(1-sweep);
+  const through = [25+shift,17+lateral,64+weapon.lift-16*(move.lowAim||0)-drop];
+  const grip = blend3(drawn,through,arc);
+  for (let i=0;i<3;i++) grip[i] -= (axis[i]*(weapon.length-retreat)+(i===2 ? 2*weapon.curve : 0))*follow;
+  const support = ease((age-end)/(Math.max(.01,duration-end)*.68));
+  return {
+    mouth, sheathAxis:axis, tsuba:blend3(grip,[19,2,57],settle),
+    yaw:mix(mix(carryYaw,1.16*weapon.arc,arc),.16,settle),
+    pitch:mix(mix(carryPitch,.43-.40*(move.lowAim||0),arc),.67,settle),
+    coil:load*mix(-.30,.52,arc), lateral, shift, drop, load, turn:arc*(1-settle),
+    shrug:load*arc, reach, exposed, carryReady:settle,
+    sheathHold:1-support, supportGrip:weapon.grip>=11 ? support : 0,
+  };
+}
+function sheathTravel() {
+  return Math.min(weapon.length*.49,Math.max(0,weapon.length-30));
+}
 function baseKatanaPose(age) {
   const move = cut(),
     midCut = age >= 0 && age < move.duration;
   if (midCut && move.riposte) return ripostePose(age, move);
+  if (midCut && move.entry?.steppingDraw) return steppingDraw(age, move);
   const parryAge = run.phase - run.guardAt;
   const sinceContact = run.phase - run.deflectedAt;
   const blocking = run.guardAt > run.rollAt && !midCut &&
@@ -86,7 +130,6 @@ function baseKatanaPose(age) {
     ? clamp01(parryAge / parryTiming.open)
     : run.bladeOut ? transition : 1 - transition;
   const readyHand = [19, 2, 57],
-    carryYaw = -2.93, carryPitch = -.23,
     axis = bladeAxis(carryYaw, carryPitch);
   let exposed = ease((carry - 0.12) / 0.55),
     ready = ease((carry - 0.67) / 0.33),
@@ -125,7 +168,7 @@ function baseKatanaPose(age) {
     reach = run.fromSheath ? ease(draw / 0.2) : 1;
     ready = run.fromSheath ? 0 : 1;
   }
-  const slide = Math.min(weapon.length * .49, Math.max(0, weapon.length - 30)) * exposed * (1 - ready);
+  const slide = sheathTravel() * exposed * (1 - ready);
   const mouth = [9 + shift * .82, -14 + lateral, 51 - drop].map(
     (n, i) => n + axis[i] * slide,
   );

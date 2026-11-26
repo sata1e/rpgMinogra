@@ -579,7 +579,8 @@ function startCut(style, previous = null) {
       clearance:5, walking:false,
     });
   }
-  activeCut.entry = {vx:velocity, vz:depthVelocity, leadSide:lead ? 1 : -1,
+  const steppingDraw = run.fromSheath && style === 0 && rig && Math.hypot(velocity,depthVelocity)>8;
+  activeCut.entry = {vx:velocity, vz:depthVelocity, steppingDraw, leadSide:lead ? 1 : -1,
     landAt:Math.min(landing,contactBeat), footRate:Math.max(1,landing/contactBeat)};
   let nearest = weapon.length + base.step + 58;
   activeCut.lowAim = 0;
