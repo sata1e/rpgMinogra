@@ -776,6 +776,10 @@ function unbalance(d, x, z, strength, level, torque = 0) {
   if (down) {
     d.fellAt = run.phase;
     d.fallAngle = Math.atan2(z, x) + (leg ? 0.37 * torque : 0);
+    if (d.missingPaw!==undefined || (!d.hp && d.missingArm)) {
+      d.fallSide=d.missingArm || (d.missingPaw>=2 ? 1 : -1);
+      d.fallAngle=d.fallFacing+d.fallSide*1.15;
+    }
 
     d.balanceDebt = 0;
   }
@@ -917,12 +921,14 @@ function update(dt) {
     cut().impact = {sampleAge, at:age};
     firstTarget.heavyImpactAt = run.phase;
   }
-  cutVegetation(firstContact ? sweep.slice(0,2*(Math.floor(firstContact.i/2)+1)) : sweep,
-    run.combo===1,run.attackDir);
+  cutVegetation(sweep,run.combo===1,run.attackDir,
+    firstContact ? 2*(Math.floor(firstContact.i/2)+1) : sweep.length);
   sampleBladeTrace(age);
   for (const d of guards) {
     if (!d.hp || !activeGuard(d)) continue;
     const traits = enemies[d.kind],
+      bash = d.type===2 && d.missingArm===1,
+      range = bash ? 48 : d.missingPaw!==undefined ? 53 : traits.range,
       dx = d.x - run.pos,
       dy = (d.y - run.depth) / depthRatio,
       dist = Math.hypot(dx, dy);
@@ -937,6 +943,7 @@ function update(dt) {
       const blocked =
         difficulty !== difficulties.easy &&
         d.type === 2 &&
+        d.missingArm !== -1 &&
         d.fellAt === undefined &&
         run.phase > d.exposed &&
         d.wind < 0 &&
@@ -949,7 +956,8 @@ function update(dt) {
       } else {
         const damage = (counter ? 3 : cut().damage) * difficulty.outgoing;
         d.hp = Math.max(0, d.hp - damage);
-        if (!d.hp) severDemon(d,contact,run.attackDir,run.combo===1);
+        const lostLimb = (!d.hp || contact.arm || contact.paw!=null) &&
+          severDemon(d,contact,run.attackDir,run.combo===1);
         d.flash = run.phase;
         if (counter) run.spent = true;
         // Compare the same point along the blade in adjacent sweep samples.
@@ -972,7 +980,7 @@ function update(dt) {
         const torque =
           ((contact.x - d.x) * pushZ - (contact.y - d.y / depthRatio) * pushX) /
           22;
-        unbalance(d, pushX, pushZ, force, contact.level, torque);
+        unbalance(d, pushX, pushZ, lostLimb && contact.paw!=null ? Math.max(240,force) : force, contact.level, torque);
         if (run.combo === 1 && d.type !== 3) {
           d.wind = -10;
           d.ready = run.phase + 0.42;
@@ -983,7 +991,7 @@ function update(dt) {
           health = Math.min(100, health + difficulty.heal);
           run.cleanAt = run.attackAt + cut().duration;
           if (guards.every((enemy) => !enemy.hp)) {
-            victoryAt = run.phase + (d.severed ? 1.1 : cut().link?.overheadFinish ? .32 : 0);
+            victoryAt = run.phase + (d.severed || d.missingArm || d.missingPaw!==undefined ? 1.1 : cut().link?.overheadFinish ? .32 : 0);
           }
           continue;
         }
@@ -992,7 +1000,7 @@ function update(dt) {
     if (d.fellAt !== undefined || run.phase < d.stunned) continue;
     if (d.wind >= 0) {
       const windup = enemyWindup(d);
-      if (d.type === 0 && run.phase - d.wind > windup * 0.52) {
+      if (d.type === 0 && d.missingPaw===undefined && run.phase - d.wind > windup * 0.52) {
         d.x += (d.aimX * dt * 215) / difficulty.windup;
         d.y = d.y + ((d.aimY * dt * 215) / difficulty.windup) * depthRatio;
       }
@@ -1002,7 +1010,7 @@ function update(dt) {
           d.type === 1
             ? distanceTo(d.aimX, d.aimY) < 47
             : d.type === 0 ? biteReachesPlayer(d)
-            : dist < traits.range + 20 && -dx * d.aimX - dy * d.aimY > -10;
+            : dist < range + (bash?5:20) && -dx * d.aimX - dy * d.aimY > -10;
         const guardAge = run.phase - run.guardAt;
         const canParry = !parryUsed && !rolling &&
           d.type !== 1 &&
@@ -1048,7 +1056,7 @@ function update(dt) {
           );
           health = Math.max(
             0,
-            health - Math.round(traits.damage * difficulty.incoming),
+            health - Math.round(traits.damage * difficulty.incoming * (bash ? .65 : 1)),
           );
           bodyImpact(heroMotion, -dx, -dy, traits.damage * 4 + 55);
           run.windAt = null;
@@ -1084,11 +1092,11 @@ function update(dt) {
           d.aimY = -dy / (dist || 1);
         }
       }
-    } else if (dist < traits.range && run.phase >= d.ready) {
+    } else if (dist < range && run.phase >= d.ready) {
       d.dir = Math.sign(-dx) || d.dir;
       d.wind = run.phase;
       d.chain =
-        d.type === 3 && difficulty.chain
+        d.type === 3 && !d.missingArm && difficulty.chain
           ? difficulty.chain + Number(d.hp <= 6)
           : 0;
       d.aimX = d.type === 1 ? run.pos : -dx / (dist || 1);
@@ -1097,7 +1105,7 @@ function update(dt) {
       const chase = pursuingRonin(d);
       let tx = chase ? run.pos : d.home - 50 + Math.sin(run.phase * 0.8) * 26,
         ty = chase ? run.depth : d.homeY;
-      if (chase && dist < traits.range * 0.84) continue;
+      if (chase && dist < range * 0.84) continue;
       const vx = tx - d.x,
         vy = (ty - d.y) / depthRatio,
         length = Math.hypot(vx, vy) || 1;
@@ -1105,7 +1113,7 @@ function update(dt) {
         length,
         dt *
           terrainSpeed(d.x, roadZ(d.y)) *
-          (chase ? traits.speed * difficulty.speed : 32),
+          (chase ? traits.speed * difficulty.speed : 32)*(d.missingPaw!==undefined ? .54 : 1),
       );
       d.dir = Math.sign(vx) || d.dir;
       d.x += (step * vx) / length;
@@ -1150,7 +1158,7 @@ function biteReachesPlayer(d) {
 function enemyWindup(d) {
   const base =
     d.type === 3 ? (d.hp <= 6 ? 0.43 : 0.58) : enemies[d.kind].windup;
-  return base * difficulty.windup;
+  return base * difficulty.windup * (d.missingArm===1 && d.type===2 ? .78 : d.missingArm || d.missingPaw!==undefined ? 1.22 : 1);
 }
 
 export {

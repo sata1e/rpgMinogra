@@ -23,6 +23,7 @@ const houndFeet = [
 function advanceFeet(b, dt) {
   const actor = b.ref,
     hero = actor === heroMotion;
+  const tripod = actor.missingPaw!==undefined;
   if (!hero && (actor.type === undefined || actor.type === 1)) return;
   if (hero && run.phase - run.rollAt < rollDuration) {
     actor.feet = null;
@@ -85,6 +86,7 @@ function advanceFeet(b, dt) {
   if (rig.time >= rig.duration) {
     let error = 0;
     rig.feet.forEach((f, i) => {
+      if (tripod && i===actor.missingPaw) return;
       error = Math.max(error, Math.hypot(f.x - homes[i][0], f.z - homes[i][1]));
     });
     if (error < 4) {
@@ -104,6 +106,9 @@ function advanceFeet(b, dt) {
         const leading = Math.abs(sideways) > Math.abs(along) ? sideways : along;
         rig.group = leading > 0 ? 1 : 0;
       } else rig.group = errors[0] > errors[1] ? 0 : 1;
+    } else if (tripod) {
+      rig.group = (rig.group+1)%4;
+      if (rig.group===actor.missingPaw) rig.group=(rig.group+1)%4;
     } else rig.group = 1 - rig.group;
     rig.hasStepped = true;
     const surface = groundKind(b.x, b.z);
@@ -112,7 +117,7 @@ function advanceFeet(b, dt) {
     rig.duration = hero && !braced ? surfaceTime * mix(1, guardTempo, stance) : Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
     rig.time = 0;
     rig.feet.forEach((f, i) => {
-      if (pattern[i][2] !== rig.group) return;
+      if ((tripod ? i : pattern[i][2]) !== rig.group) return;
       const catchStep =
         !hero && run.phase - (actor.balanceAt ?? -10) < 0.35 ? 1.9 : 1;
       // The landing target includes both pelvis travel during swing and the
@@ -148,7 +153,7 @@ function advanceFeet(b, dt) {
   rig.time = Math.min(rig.duration, rig.time + dt*(entry?.footRate ?? 1));
   const t = rig.time / rig.duration;
   rig.feet.forEach((f, i) => {
-    if (pattern[i][2] !== rig.group) return;
+    if ((tripod ? i : pattern[i][2]) !== rig.group) return;
     const plantedTime = f.plantedTime ?? .055;
     const u = f.walking ? ease((t-plantedTime)/(1-2*plantedTime)) : ease(t);
     f.x = mix(f.fromX, f.toX, u);

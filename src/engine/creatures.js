@@ -131,6 +131,11 @@ function houndModel(d, load, snap, fall, sampleLunge) {
   for (const s of [-1, 1]) {
     for (const front of [false, true]) {
       const index = (s > 0 ? 2 : 0) + (front ? 1 : 0);
+      if (d.missingPaw===index) {
+        ovalMesh(front?13:-20,h-1,s*8,4,4.5,3.6,4);
+        continue;
+      }
+      const firstPawFace=scene.faces.length;
       let [toe, lift, z] = fallingFoot(d, index, houndFeet, fall);
       const fold = (fall?.fold ?? 0) * (s === fall?.side ? 1 : .68);
       if (fall) {
@@ -161,6 +166,8 @@ function houndModel(d, load, snap, fall, sampleLunge) {
           3,
           4,
         );
+      if (d.severPaw===index)
+        for (let i=firstPawFace;i<scene.faces.length;i++) scene.faces[i].paw=index;
     }
     for (let j = 0; j < 4; j++)
       sculpt(
@@ -401,9 +408,16 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
       );
     }
     const firstArmFace = scene.faces.length;
-    const active = s === (boss && pose.reverse ? -1 : 1);
+    if (d.missingArm===s) {
+      ovalMesh(surge,shoulder-2,s*15,5,5.5,3.5,plate);
+      continue;
+    }
+    const active = s === (d.missingArm ? -d.missingArm : boss && pose.reverse ? -1 : 1);
+    const bash = active && !boss && s<0;
+    const shove = bash ? (-8*load+20*pose.strike)*(1-pose.recover) : 0;
     const { hand, elbow, tip } = active
-      ? weaponArm(s, pose, boss, breath, contact, bind)
+      ? bash ? {hand:[17+shove,54+breath,-22],elbow:[4+shove*.5,61+breath,-26],tip:[29+shove,57+breath,-24]}
+        : weaponArm(s, pose, boss, breath, contact, bind)
       : {hand: [17, 54 + breath, s*22], elbow: [4,60-sink,s*26], tip: [51,94+breath,s*25]};
     if (fall && (s === 1 || boss)) {
       const support = fall.brace * (s === fall.side ? 1 : .72);
@@ -465,16 +479,16 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
         [16, 48, -13],
         [16, 68, -12],
       ];
-      for (const p of outline) p[1] -= sink;
+      for (const p of outline) { p[0]+=shove; p[1]-=sink; }
       for (let i = 0; i < outline.length; i++) {
         panel(
-          [outline[i], outline[(i + 1) % outline.length], [29, 57-sink, -24]],
+          [outline[i], outline[(i + 1) % outline.length], [29+shove, 57-sink, -24]],
           14,
           true,
         );
         rod(outline[i], outline[(i + 1) % outline.length], 1.5, 2, true);
       }
-      ovalMesh(28, 57-sink, -24, 3, 6, 4, 5);
+      ovalMesh(28+shove, 57-sink, -24, 3, 6, 4, 5);
     }
     if (d.severArm===s)
       for (let i=firstArmFace;i<scene.faces.length;i++) scene.faces[i].arm=s;

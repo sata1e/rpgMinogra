@@ -1,6 +1,6 @@
 import { knockdownPose, loweredHeight, impactDrop } from "./demon-fall.js";
 import { fallPose } from "./death.js";
-import { splitFaces, bladeIntersection } from "./cutting.js";
+import { splitFaces, bladeIntersection, swingNormal } from "./cutting.js";
 import { attackPhases } from "./enemy-attacks.js";
 import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
@@ -1518,7 +1518,8 @@ export function demonAttackPose(d) {
   return {winding, lift, strike, recover, load, snap: strike * (1 - recover)};
 }
 export function houndBackHeight(d, load, snap) {
-  return 32 + Math.sin(run.phase * 3 + d.home) * .65 - load * 10 + snap * 4 - impactDrop(d,run.phase);
+  const limp=d.missingPaw===undefined ? 0 : 3+(d.feet?.feet[d.feet.group]?.h||0)*.32;
+  return 32 + Math.sin(run.phase * 3 + d.home) * .65 - limp - load * 10 + snap * 4 - impactDrop(d,run.phase);
 }
 function demon(d) {
   const fall = bodyTilt?.fall;
@@ -1541,7 +1542,7 @@ function demon(d) {
       : guarding ? strike * ease(guardAge / parryTiming.open) : 0;
     const boss = d.type === 3;
     const point = bind ? enemyLocalPoint(scene.heroBladeMiddle, boss ? 1.17 : 1) : null;
-    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse, side: d.deflectSide || 1}, boss, point, bind, fall, winding && combatOpponent(d) ? addAttackSight : null);
+    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse || d.missingArm===-1, side: d.deflectSide || 1}, boss, point, bind, fall, winding && combatOpponent(d) ? addAttackSight : null);
   }
   if (d.kind === 4 || d.kind === 5) {
     const reed = d.kind === 4;
@@ -2216,12 +2217,29 @@ export function resetCuts() {
   backdropKey="";
 }
 
-function releaseFragment(faces, direction, speed, hinge = null) {
+function releaseFragment(faces, direction, speed, hinge = null, motion = "loose") {
   const points = [...new Set(faces.flatMap(f=>f.slice(0,3)))];
   if (!points.length) return;
   const pivot = hinge ?? [0,1,2].map(k=>points.reduce((s,p)=>s+p[k],0)/points.length);
   const len=Math.hypot(direction.x,direction.y)||1;
-  fragments.push({faces,points,pivot,direction:{x:direction.x/len,y:direction.y/len},speed,hinge,at:run.phase});
+  const dir={x:direction.x/len,y:direction.y/len};
+  let maxTilt=1.48;
+  if (hinge) {
+    // Stop rotating when the crown meets the terrain. The cut edge stays pinned.
+    for (const v of points) {
+      const x=v[0]-hinge[0], y=v[1]-hinge[1], z=v[2]-hinge[2], along=x*dir.x+z*dir.y;
+      if (y<6 || along<0) continue;
+      const clearance=a=>{
+        const off=along*(Math.cos(a)-1)+y*Math.sin(a);
+        return hinge[1]+y*Math.cos(a)-along*Math.sin(a)-groundHeight(v[0]+dir.x*off,v[2]+dir.y*off);
+      };
+      if (clearance(maxTilt)>=0) continue;
+      let lo=0, hi=maxTilt;
+      for (let j=0;j<8;j++) { const mid=(lo+hi)/2; if (clearance(mid)>0) lo=mid; else hi=mid; }
+      maxTilt=lo;
+    }
+  }
+  fragments.push({faces,points,pivot,direction:dir,speed,hinge,maxTilt,motion,at:run.phase});
 }
 
 function drawFragments() {
@@ -2234,21 +2252,25 @@ function drawFragments() {
       for (const face of f.settled) scene.faces.push(face);
       continue;
     }
-    const tilt=f.hinge ? 1.48*ease(t/1.05) : 1.62*ease(t/.76);
+    const lower=f.motion==="collapse", upper=f.motion==="split";
+    const tilt=f.hinge ? f.maxTilt*ease(t/1.05) : lower ? 1.42*ease((t-.11)/.69) :
+      upper ? 1.9*ease(t/.56)-.16*ease((t-.56)/.18) : 1.62*ease(t/.76);
     const c=Math.cos(tilt), s=Math.sin(tilt);
     const travel=f.hinge?0:f.speed*Math.min(t,.65);
     const cx=x+travel*dir.x, cz=z+travel*dir.y;
-    const height=y+(f.hinge?0:24*t-220*t*t);
+    const height=y+(f.hinge?0:(lower?0:upper?12:24)*t-220*t*t);
+    const buckle=lower ? 7*ease(t/.18)*(1-ease((t-.2)/.45)) : 0;
+    const baseY=lower ? groundHeight(x,z) : 0;
     let bottom=Infinity;
     const moved=new Map();
     for (const v of f.points) {
-      const up=v[1]-y, along=(v[0]-x)*dir.x+(v[2]-z)*dir.y;
+      const up=v[1]-y-buckle*clamp01((v[1]-baseY-5)/36), along=(v[0]-x)*dir.x+(v[2]-z)*dir.y;
       const offset=along*(c-1)+up*s;
       const p=[cx+v[0]-x+dir.x*offset,height+up*c-along*s,cz+v[2]-z+dir.y*offset];
       bottom=Math.min(bottom,p[1]);
       moved.set(v,p);
     }
-    const lift=Math.max(0,groundHeight(cx,cz)-bottom);
+    const lift=f.hinge ? 0 : Math.max(0,groundHeight(cx,cz)-bottom);
     for (const p of moved.values()) p[1]+=lift;
     const start=scene.faces.length;
     for (const [a,b,c,m,l,d] of f.faces)
@@ -2257,7 +2279,7 @@ function drawFragments() {
   }
 }
 
-export function cutVegetation(edges, heavy, direction) {
+export function cutVegetation(edges, heavy, direction, limit=edges.length) {
   if (!edges.length) return;
   const floor=groundHeight(run.pos,roadZ(run.depth));
   const segments=edges.map(edge=>edge.map(p=>[p.x,floor+p.z,p.y-trackY/depthRatio]));
@@ -2268,20 +2290,26 @@ export function cutVegetation(edges, heavy, direction) {
     let state=cutPlants.get(mesh);
     if (!grouped && state) continue;
     const faces=mesh.levels[0].faces, hits=new Map();
-    for (const [a,b] of segments) {
+    for (let i=0;i<limit;i++) {
+      const [a,b]=segments[i];
       if (a.some((v,i)=>Math.max(v,b[i])<mesh.lo[i] || Math.min(v,b[i])>mesh.hi[i])) continue;
       for (const face of faces) {
         const group=grouped?face.stem:0;
         if (group===undefined || hits.has(group) || state?.groups.has(group)) continue;
         if (mesh.plant==="tree" && ![0,1,21].includes(face[3])) continue;
         const p=bladeIntersection(a,b,face);
-        if (p && (mesh.plant!=="tree" || Math.hypot(p[0]-mesh.x,p[2]-mesh.z)<20)) hits.set(group,p);
+        if (p && (mesh.plant!=="tree" || Math.hypot(p[0]-mesh.x,p[2]-mesh.z)<20)) hits.set(group,{p,i});
       }
     }
     if (!hits.size) continue;
     let remaining=faces;
-    for (const [group,p] of hits) {
-      const parts=splitFaces(remaining,v=>v[1]-p[1],mesh.plant==="tree"?2:12,
+    for (const [group,{p,i}] of hits) {
+      const wood=mesh.plant==="tree" || mesh.plant==="bamboo";
+      const normal=wood ? swingNormal(segments[i],segments[i>=2?i-2:i+2],direction) : [0,1,0];
+      const offset=v=>normal[0]*(v[0]-p[0])+normal[1]*(v[1]-p[1])+normal[2]*(v[2]-p[2]);
+      if (offset([mesh.x,mesh.lo[1],mesh.z])>0)
+        for (let k=0;k<3;k++) normal[k]*=-1;
+      const parts=splitFaces(remaining,offset,mesh.plant==="tree"?2:12,
         face=>!grouped || face.stem===group);
       if (!parts.top.length || !parts.base.length) continue;
       if (!state) {
@@ -2291,7 +2319,16 @@ export function cutVegetation(edges, heavy, direction) {
       }
       state.groups.add(group);
       remaining=parts.base;
-      releaseFragment(parts.top,direction,26,grouped?null:[mesh.x,p[1],mesh.z]);
+      const sideways=wood && Math.abs(normal[1])<.65;
+      const fallDir=sideways ? {x:normal[0],y:normal[2]} : direction;
+      let hinge=p;
+      if (sideways) {
+        const height=p[1]-mesh.lo[1];
+        const offset=height*normal[1]/(normal[0]**2+normal[2]**2);
+        const foot=[p[0]+offset*normal[0],mesh.lo[1],p[2]+offset*normal[2]];
+        if (Math.hypot(foot[0]-mesh.x,foot[2]-mesh.z)<(mesh.plant==="tree"?15:4)) hinge=foot;
+      }
+      releaseFragment(parts.top,fallDir,26,grouped?null:hinge);
     }
     if (remaining!==faces) {
       Object.assign(mesh,packFaces(remaining));
@@ -2302,23 +2339,41 @@ export function cutVegetation(edges, heavy, direction) {
 }
 
 export function severDemon(d,hit,direction,vertical) {
+  const paw=hit.paw;
+  const losePaw=paw!=null && d.missingPaw===undefined;
+  const loseArm=hit.arm && !d.missingArm;
+  if (d.hp && !losePaw && !loseArm) return false;
   const facing=demonFacing(d);
   const side=Math.sign(-(hit.x-d.x)*Math.sin(facing)+(hit.y-d.y/depthRatio)*Math.cos(facing)) || 1;
   const head=d.type===0 && hit.level>=.84;
   const leg=d.type!==1 && hit.level<.25;
+  // A wounded enemy can crumple on its remaining limbs; reserve a new
+  // full-body split for a heavy finisher or an intact target.
+  if (!d.hp && !vertical && !head && !losePaw && !loseArm &&
+      (d.missingArm || d.missingPaw!==undefined)) return false;
   const localForward=(hit.x-d.x)*Math.cos(facing)+(hit.y-d.y/depthRatio)*Math.sin(facing);
   const coords=new WeakMap(), saved=scene.faces;
   scene.faces=[];
   bodyTilt=impactTilt(d,d.type===0?12:24);
   cutCoordinates=coords;
   d.severArm=hit.arm;
+  d.severPaw=paw;
   demon(d);
   delete d.severArm;
+  delete d.severPaw;
   cutCoordinates=null;
   bodyTilt=null;
   const faces=scene.faces;
   scene.faces=saved;
-  const parts=hit.arm ? {base:faces.filter(f=>f.arm!==hit.arm),top:faces.filter(f=>f.arm===hit.arm)} : splitFaces(faces,p=>{
+  if (loseArm || losePaw) {
+    const limb=faces.filter(f=>loseArm ? f.arm===hit.arm : f.paw===paw);
+    if (!limb.length) return false;
+    if (loseArm) d.missingArm=hit.arm;
+    else d.missingPaw=paw;
+    releaseFragment(limb,direction,46);
+    return true;
+  }
+  const parts=splitFaces(faces,p=>{
     const [x,y,z]=coords.get(p);
     if (head) return x-22;
     if (leg) return (d.type===0?16:26)-y;
@@ -2329,9 +2384,10 @@ export function severDemon(d,hit,direction,vertical) {
   }));
   if (!parts.base.length || !parts.top.length) return false;
   d.severed=true;
-  releaseFragment(parts.base,direction,9);
+  const outward={x:side*-Math.sin(facing),y:side*Math.cos(facing)};
+  releaseFragment(parts.base,{x:direction.x*.3-outward.x*.7,y:direction.y*.3-outward.y*.7},9,null,"collapse");
   releaseFragment(parts.top,{x:direction.x*.75-side*Math.sin(facing)*.55,
-    y:direction.y*.75+side*Math.cos(facing)*.55},head?67:48);
+    y:direction.y*.75+side*Math.cos(facing)*.55},head?67:48,null,"split");
   return true;
 }
 function buildActorFaces() {

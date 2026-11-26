@@ -54,6 +54,21 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
   return {base,top};
 }
 
+export function swingNormal(segment, neighbor, heading) {
+  const [a,b]=segment;
+  const edge=b.map((v,i)=>v-a[i]);
+  // The local swept surface is spanned by the edge and its motion between samples.
+  const motions=[];
+  if (neighbor) motions.push(b.map((v,i)=>v-neighbor[1][i]),a.map((v,i)=>v-neighbor[0][i]));
+  motions.push([-heading.y,0,heading.x],[0,1,0],[1,0,0]);
+  for (const [x,y,z] of motions) {
+    const n=[edge[1]*z-edge[2]*y,edge[2]*x-edge[0]*z,edge[0]*y-edge[1]*x];
+    const len=Math.hypot(...n);
+    if (len>1e-6) return n.map(v=>v/len);
+  }
+  return [0,1,0];
+}
+
 // Intersection of the blade segment and a plant triangle, in segment order.
 export function bladeIntersection(a,b,face) {
   const [p,q,r]=face;

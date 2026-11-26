@@ -454,6 +454,7 @@ function swordContact(edges, d) {
   const zones = d.type === 0
       ? [
           [.2, .47, -21, 11], [.2, .47, 14, 11],
+          [.23, .4, -20, back-10], [.23, .4, 13, back-10],
           [.58, .72, -22, back + 2], [.6, .64, -9, back + 1],
           [.65, .86, 3, back + 2], [.72, .85, 14, back + 4 + chest],
           [.84, .59, 23, back + 11 + chest], [.91, .56, 30, back + 14 + chest],
@@ -472,6 +473,8 @@ function swordContact(edges, d) {
   for (const [level, size, forward, centerHeight, arm] of zones) {
     const limb = level < 0.25 && d.type !== 1;
     for (const side of limb || arm ? [-1, 1] : [0]) {
+      const paw = d.type===0 && limb ? (side>0?2:0)+(forward>0?1:0) : null;
+      if ((arm && d.missingArm===side) || (paw!==null && d.missingPaw===paw)) continue;
       const lateral = side * width * (arm ? 1.28 : .52);
       let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
         y = forward * Math.sin(facing) + lateral * Math.cos(facing),
@@ -503,7 +506,7 @@ function swordContact(edges, d) {
           pz = a.z + t * dz;
         const dist = Math.hypot(px - x, py - y, pz - z) / (width * size);
         if (dist <= 1 && (!earliest || i < earliest.i || dist < earliest.dist))
-          earliest = { i, t, dist, level, arm:arm ? side : 0, x: px, y: py, z: pz };
+          earliest = { i, t, dist, level, paw, arm:arm ? side : 0, x: px, y: py, z: pz };
       }
     }
   }
