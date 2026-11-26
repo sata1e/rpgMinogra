@@ -90,9 +90,17 @@ function ovalMesh(x, y, z, rx, ry, rz, m) {
     true,
   );
 }
-function houndModel(d, load, snap) {
+function fallingFoot(d, index, pattern, fall) {
+  const foot = localFoot(d, index, pattern);
+  if (!fall) return foot;
+  const blend = Math.min(1, fall.fold + fall.rise);
+  return [foot[0] + (pattern[index][0] - foot[0]) * blend,
+    foot[1] * (1 - blend), foot[2] + (pattern[index][1] - foot[2]) * blend];
+}
+function houndModel(d, load, snap, fall) {
   const breath = Math.sin(run.phase * 3 + d.home) * 0.65;
   const h = 32 + breath - load * 10 + snap * 4;
+  const chest = fall ? 6 * fall.brace * Math.min(1, fall.rise * 4) : 0;
   // Pelvis, tucked belly, deep rib cage, withers and sloping neck.
   sculpt(
     [
@@ -100,9 +108,9 @@ function houndModel(d, load, snap) {
       [-22, h + 2, 0, 10, 10],
       [-11, h + 2, 0, 7, 8],
       [1, h + 1, 0, 12, 10],
-      [12, h + 3, 0, 15, 12],
-      [19, h + 7, 0, 10, 9],
-      [26, h + 10, 0, 6, 6],
+      [12, h + 3 + chest, 0, 15, 12],
+      [19, h + 7 + chest, 0, 10, 9],
+      [26, h + 10 + chest, 0, 6, 6],
     ],
     4,
     12,
@@ -118,14 +126,19 @@ function houndModel(d, load, snap) {
   );
   for (const s of [-1, 1]) {
     for (const front of [false, true]) {
-      const index = (s > 0 ? 2 : 0) + (front ? 1 : 0),
-        [toe, lift, z] = localFoot(d, index, houndFeet);
+      const index = (s > 0 ? 2 : 0) + (front ? 1 : 0);
+      let [toe, lift, z] = fallingFoot(d, index, houndFeet, fall);
+      const fold = (fall?.fold ?? 0) * (s === fall?.side ? 1 : .68);
+      if (fall) {
+        toe += (front ? 10 : -12) * fall.spread + (front ? 5 : 0) * fall.brace;
+        z += s * 8 * fall.spread;
+      }
       const x = front ? 13 : -20;
       sculpt(
         [
-          [x, h + 2, s * 8, front ? 6 : 8, 5],
+          [x, h + 2 + (front ? chest : 0), s * 8, front ? 6 : 8, 5],
           [x + (front ? -2 : 5), h - 6, s * 9, front ? 5 : 7, 4],
-          [x + (front ? -4 : 8), h - 14, (s * 9 + z) / 2, 3, 3],
+          [x + (front ? -4 - 9 * fold : 8 + 10 * fold), h - 14, (s * 9 + z) / 2, 3, 3],
           [toe - (front ? 1 : 8), 9 + lift, z, 2.8, 2.3],
           [toe, 4 + lift, z, 2, 2],
         ],
@@ -154,9 +167,9 @@ function houndModel(d, load, snap) {
       );
     sculpt(
       [
-        [22, h + 17, s * 5, 3.6],
-        [17, h + 24, s * 9, 2.3],
-        [19, h + 31, s * 11, 0.3],
+        [22, h + chest + 17, s * 5, 3.6],
+        [17, h + chest + 24, s * 9, 2.3],
+        [19, h + chest + 31, s * 11, 0.3],
       ],
       3,
     );
@@ -164,7 +177,7 @@ function houndModel(d, load, snap) {
   // Split clumps of ash-grey guard hair along the raised hackles.
   for (let k = 0; k < 9; k++) {
     const x = 18 - k * 4,
-      y = h + 14 - k * 0.63;
+      y = h + chest + 14 - k * 0.63;
     for (const side of [-1, 1])
       panel(
         [
@@ -179,42 +192,42 @@ function houndModel(d, load, snap) {
   const jaw = load * 9 + 1;
   sculpt(
     [
-      [20, h + 14, 0, 6, 7],
-      [27, h + 14, 0, 8, 8],
-      [33, h + 12, 0, 4.5, 5],
-      [43, h + 10, 0, 3, 4],
+      [20, h + chest + 14, 0, 6, 7],
+      [27, h + chest + 14, 0, 8, 8],
+      [33, h + chest + 12, 0, 4.5, 5],
+      [43, h + chest + 10, 0, 3, 4],
     ],
     2,
   );
   sculpt(
     [
-      [27, h + 7, 0, 4, 5],
-      [36, h + 5 - jaw, 0, 2.3, 4],
-      [42, h + 6 - jaw, 0, 1, 3],
+      [27, h + chest + 7, 0, 4, 5],
+      [36, h + chest + 5 - jaw, 0, 2.3, 4],
+      [42, h + chest + 6 - jaw, 0, 1, 3],
     ],
     1,
   );
-  ovalMesh(42, h + 11, 0, 2.8, 2, 4, 0);
+  ovalMesh(42, h + chest + 11, 0, 2.8, 2, 4, 0);
   for (const s of [-1, 1]) {
-    ovalMesh(31, h + 16, s * 6, 2.2, 1.2, 1.6, 5);
+    ovalMesh(31, h + chest + 16, s * 6, 2.2, 1.2, 1.6, 5);
     sculpt(
       [
-        [35, h + 9, s * 4, 1.3],
-        [36, h + 4, s * 4, 0.2],
+        [35, h + chest + 9, s * 4, 1.3],
+        [36, h + chest + 4, s * 4, 0.2],
       ],
       3,
       5,
     );
   }
 }
-function mournerModel(d, load) {
-  const y = 14 + Math.sin(run.phase * 2.2 + d.home) * 3;
+function mournerModel(d, load, fall) {
+  const y = 14 + Math.sin(run.phase * 2.2 + d.home) * 3 - 8 * (fall?.fold ?? 0);
   // Overlapping cloth gores open and close independently along the ragged hem.
   for (let i = 0; i < 16; i++) {
     const a = (i * Math.PI) / 8,
       b = ((i + 1.12) * Math.PI) / 8;
     const point = (angle, h, r, drift) => [
-      Math.cos(angle) * r + drift,
+      Math.cos(angle) * (r + (h < 30 ? 9 * (fall?.spread ?? 0) : 0)) + drift,
       h + y,
       Math.sin(angle) * r * 0.82,
     ];
@@ -251,9 +264,10 @@ function mournerModel(d, load) {
   ovalMesh(13, y + 72, 0, 3.8, 7.5, 5.8, 3);
   for (const s of [-1, 1]) {
     ovalMesh(16, y + 74, s * 2.9, 1.2, 2, 1.2, 0);
-    const hx = 15 + load * 11,
-      hy = y + 40 + load * 29,
-      z = s * (22 + load * 5);
+    const brace = (fall?.brace ?? 0) * (s === fall?.side ? 1 : .5);
+    const hx = 15 + load * 11 + 8 * brace,
+      hy = y + 40 + load * 29 - 11 * brace,
+      z = s * (22 + load * 5 + 11 * brace);
     sculpt(
       [
         [0, y + 61, s * 12, 6],
@@ -313,7 +327,7 @@ function warBlade(hand, tip) {
     true,
   );
 }
-function armoredModel(d, pose, boss, contact, bind) {
+function armoredModel(d, pose, boss, contact, bind, fall) {
   const breath =
     Math.sin(run.phase * 2 + d.home) * 0.7 +
     (d.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0) * 0.14;
@@ -323,12 +337,18 @@ function armoredModel(d, pose, boss, contact, bind) {
     plate = boss ? 4 : 14;
   scene.unit = boss ? 1.17 : 1;
   for (const s of [-1, 1]) {
-    const [heel, lift, z] = localFoot(d, s < 0 ? 0 : 1, knightFeet);
+    let [heel, lift, z] = fallingFoot(d, s < 0 ? 0 : 1, knightFeet, fall);
+    const lead = s === fall?.side;
+    const knee = (fall?.fold ?? 0) * (lead ? 18 : 12);
+    if (fall) {
+      heel += (lead ? 12 : -16) * fall.spread;
+      z += s * (lead ? 7 : 4) * fall.spread;
+    }
     sculpt(
       [
         [s * 2, 45, s * 8, 7.2],
-        [heel + 4, 29, (z + s * 10) / 2, 6.4],
-        [heel + 4, 24, (z + s * 10) / 2, 5.5],
+        [heel + 4 + knee, 29, (z + s * 10) / 2, 6.4],
+        [heel + 4 + knee, 24, (z + s * 10) / 2, 5.5],
         [heel, 9 + lift, z, 3.4],
       ],
       1,
@@ -336,8 +356,8 @@ function armoredModel(d, pose, boss, contact, bind) {
     hull(
       [
         [heel, 7 + lift, z, 4, 4],
-        [heel + 1, 17 + lift, z, 5.7, 5],
-        [heel + 4, 23 + lift, (z + s * 10) / 2, 5, 4],
+        [heel + 1 + knee * .52, 17 + lift, z, 5.7, 5],
+        [heel + 4 + knee, 23 + lift, (z + s * 10) / 2, 5, 4],
       ],
       plate,
       9,
@@ -376,6 +396,14 @@ function armoredModel(d, pose, boss, contact, bind) {
     const { hand, elbow, tip } = active
       ? weaponArm(s, pose, boss, breath, contact, bind)
       : {hand: [17, 54 + breath, s*22], elbow: [4,60,s*26], tip: [51,94+breath,s*25]};
+    if (fall && (s === 1 || boss)) {
+      const support = fall.brace * (s === fall.side ? 1 : .72);
+      const dx = (12 - hand[0]) * support, dy = (49 - hand[1]) * support;
+      const dz = (s * 35 - hand[2]) * support;
+      hand[0] += dx; hand[1] += dy; hand[2] += dz;
+      elbow[0] -= 9 * support; elbow[2] += s * 7 * support;
+      tip[0] += dx + 18 * support; tip[1] += dy - 17 * support; tip[2] += dz;
+    }
     sculpt(
       [
         [surge, shoulder - 2, s * 16, 8],

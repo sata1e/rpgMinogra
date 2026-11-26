@@ -1,3 +1,4 @@
+import { loweredHeight } from "./demon-fall.js";
 import { W } from "./config.js";
 
 import { mix, edgeHits } from "./wanderer.js";
@@ -397,7 +398,7 @@ function startMotion(dt) {
   }
   const result = [body(heroMotion, run.pos, run.depth, 19, 0.72)];
   for (const d of guards)
-    if ((d.hp || run.phase - d.fellAt < 1) && activeGuard(d))
+    if ((d.hp || run.phase - (d.diedAt ?? d.fellAt) < 1) && activeGuard(d))
       result.push(body(d, d.x, d.y, ...bodySizes[d.type]));
   for (const j of jars) if (!j.broken) result.push(body(j, j.x, j.y, 13, 1.75));
   return result;
@@ -442,7 +443,7 @@ function collisionSpan(b) {
   const d = b.ref;
   if (d.fellAt === undefined) return { x: 0, z: 0 };
   const tilt = impactTilt(d, 0),
-    reach = [37, 70, 77, 89][d.type] * tilt.sin;
+    reach = loweredHeight([37, 70, 77, 89][d.type], tilt.fall, d.type === 3 ? 1.17 : 1) * tilt.sin;
   return { x: tilt.nx * reach, z: tilt.nz * reach };
 }
 function confineBody(b) {
@@ -474,7 +475,7 @@ function contactShock(d, x, z, strength) {
 }
 function resolveContacts(snapshot = startMotion(0), dt = 0.01) {
   const bodies = snapshot.filter(
-    (b) => (b.ref.hp !== 0 || run.phase - b.ref.fellAt < 1) && !b.ref.broken,
+    (b) => (b.ref.hp !== 0 || run.phase - (b.ref.diedAt ?? b.ref.fellAt) < 1) && !b.ref.broken,
   );
   for (const b of bodies) {
     const r = b.ref,

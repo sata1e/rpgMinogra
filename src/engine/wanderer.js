@@ -1,3 +1,4 @@
+import { loweredHeight } from "./demon-fall.js";
 import { parryTiming, riposteWindow } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { cut, run, depthRatio } from "./journey.js";
@@ -312,6 +313,7 @@ function swordContact(edges, d) {
       let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
         y = forward * Math.sin(facing) + lateral * Math.cos(facing),
         z = height * level;
+      if (tilt?.fall) z = loweredHeight(z, tilt.fall, d.type === 3 ? 1.17 : 1);
       if (tilt && z > tilt.pivot) {
         const h = z - tilt.pivot,
           along = x * tilt.nx + y * tilt.nz,

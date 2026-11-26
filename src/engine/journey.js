@@ -1,3 +1,4 @@
+import { knockdownDuration } from "./demon-fall.js";
 import { deathDuration } from "./death.js";
 import { rollDuration, rollCost, chargeDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
@@ -640,9 +641,15 @@ function unbalance(d, x, z, strength, level, torque = 0) {
   d.balanceDebt =
     debt + strength * (leg ? 1.65 : high ? 1.38 : 1) * (airborne ? 1.18 : 1);
   d.balanceAt = run.phase;
-  if (d.hp && d.fellAt !== undefined) return;
+  if (!d.hp && d.diedAt === undefined) d.diedAt = run.phase;
+  if (d.fellAt !== undefined) return;
   const down = !d.hp || d.balanceDebt > 210;
-  const duration = down ? 1.12 : leg ? 0.48 : 0.25;
+  if (down) {
+    d.fallTime = leg ? .37 : high ? .52 : .45;
+    d.fallFacing = d.feet?.angle ?? Math.atan2((run.depth - d.y) / depthRatio, run.pos - d.x);
+    d.fallSide = Math.sign(z * Math.cos(d.fallFacing) - x * Math.sin(d.fallFacing)) || Math.sign(torque) || 1;
+  }
+  const duration = down ? knockdownDuration(d) : leg ? 0.48 : 0.25;
   d.stunned = Math.max(d.stunned, run.phase + duration);
   d.wind = -10;
   d.chain = 0;
@@ -652,7 +659,7 @@ function unbalance(d, x, z, strength, level, torque = 0) {
   if (down) {
     d.fellAt = run.phase;
     d.fallAngle = Math.atan2(z, x) + (leg ? 0.37 * torque : 0);
-    d.fallTime = leg ? 0.32 : high ? 0.49 : 0.42;
+
     d.balanceDebt = 0;
   }
 }
@@ -766,6 +773,7 @@ function update(dt) {
       const blocked =
         difficulty !== difficulties.easy &&
         d.type === 2 &&
+        d.fellAt === undefined &&
         run.phase > d.exposed &&
         d.wind < 0 &&
         -dx * d.dir > 0 &&
@@ -817,7 +825,7 @@ function update(dt) {
         }
       }
     }
-    if (run.phase < d.stunned) continue;
+    if (d.fellAt !== undefined || run.phase < d.stunned) continue;
     if (d.wind >= 0) {
       const windup = enemyWindup(d);
       if (d.type === 0 && run.phase - d.wind > windup * 0.52) {
@@ -946,7 +954,7 @@ function update(dt) {
   settleRecoil(heroMotion, dt);
   for (const d of guards) {
     settleRecoil(d, dt);
-    if (d.hp && d.fellAt !== undefined && run.phase - d.fellAt >= 1.12) {
+    if (d.hp && d.fellAt !== undefined && run.phase - d.fellAt >= knockdownDuration(d)) {
       delete d.fellAt;
       d.feet = null;
     }

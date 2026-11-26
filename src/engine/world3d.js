@@ -1,3 +1,4 @@
+import { knockdownPose, loweredHeight } from "./demon-fall.js";
 import { fallPose } from "./death.js";
 import { attackPhases } from "./enemy-attacks.js";
 import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
@@ -147,6 +148,7 @@ let groundPose = null;
 let bodyTilt = null,
   torsoPose = null;
 function worldPoint([x, y, z]) {
+  if (bodyTilt?.fall) y = loweredHeight(y, bodyTilt.fall);
   if (torsoPose) {
     const blend = clamp01((y - 48 + torsoPose.drop) / 30);
     y += torsoPose.shrug * blend;
@@ -1323,10 +1325,10 @@ function ronin() {
 }
 function impactTilt(actor, pivot) {
   if (actor.fellAt !== undefined) {
-    const age = run.phase - actor.fellAt,
-      stand = actor.hp ? 1 - ease((age - 0.67) / 0.45) : 1;
-    const angle = 1.48 * ease(age / (actor.fallTime || 0.44)) * stand;
+    const fall = knockdownPose(actor, run.phase);
+    const angle = fall.angle;
     return {
+      fall,
       nx: Math.cos(actor.fallAngle),
       nz: Math.sin(actor.fallAngle),
       sin: Math.sin(angle),
@@ -1367,22 +1369,23 @@ function demon(d) {
   const twistAge = run.phase - (d.turnAt ?? -10);
   const twist =
     (d.hitTwist || 0) * Math.sin(Math.PI * clamp01(twistAge / 0.48));
+  const fall = bodyTilt?.fall;
   place(
     d.x,
     roadZ(d.y),
-    (d.feet?.angle ??
+    (fall ? d.fallFacing : d.feet?.angle ??
       Math.atan2((run.depth - d.y) / depthRatio, run.pos - d.x)) + twist,
   );
-  const winding = d.wind >= 0;
+  const winding = !fall && d.wind >= 0;
   const sinceHit = run.phase - (d.struckAt ?? -10);
-  const following = !winding && sinceHit < .32;
+  const following = !fall && !winding && sinceHit < .32;
   const {lift, strike} = winding ? attackPhases(run.phase - d.wind, enemyWindup(d))
     : {lift: Number(following), strike: Number(following)};
   const recover = following ? ease(sinceHit / .32) : 0;
   const load = lift * (1 - strike) * (1 - recover);
   const start = scene.faces.length;
-  if (d.type === 0) houndModel(d, load, strike * (1 - recover));
-  else if (d.type === 1) mournerModel(d, load);
+  if (d.type === 0) houndModel(d, load, strike * (1 - recover), fall);
+  else if (d.type === 1) mournerModel(d, load, fall);
   else {
     const contactAge = run.phase - (d.deflectedAt ?? -10);
     const deflect = ease(contactAge / .12) * (1 - ease((contactAge - .12) / .25));
@@ -1397,7 +1400,7 @@ function demon(d) {
       : guarding ? strike * ease(guardAge / parryTiming.open) : 0;
     const boss = d.type === 3;
     const point = bind ? enemyLocalPoint(scene.heroBladeMiddle, boss ? 1.17 : 1) : null;
-    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse, side: d.deflectSide || 1}, boss, point, bind);
+    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse, side: d.deflectSide || 1}, boss, point, bind, fall);
   }
   if (d.kind === 4 || d.kind === 5) {
     const reed = d.kind === 4;
@@ -1854,7 +1857,7 @@ function actors3d() {
   for (let i = 0; i < guards.length; i++) {
     const d = guards[i],
       label = enemyLabels[i];
-    const falling = d.fellAt !== undefined && run.phase - d.fellAt < 1.0;
+    const falling = d.fellAt !== undefined && run.phase - (d.diedAt ?? d.fellAt) < 1.0;
     const near =
       (d.hp > 0 || falling) && Math.abs(d.x - run.pos) < 1200 && activeGuard(d);
     if (!near || !actorVisible(d.x, 65, roadZ(d.y), 120)) {
