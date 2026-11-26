@@ -10,7 +10,7 @@ import {
   scene,
 } from "./world3d.js";
 import { run } from "./journey.js";
-import { ease } from "./wanderer.js";
+import { weaponArm } from "./enemy-attacks.js";
 import { localFoot, houndFeet, knightFeet } from "./footing.js";
 
 // Elliptical sections perpendicular to a centreline let a limb bend continuously
@@ -90,9 +90,9 @@ function ovalMesh(x, y, z, rx, ry, rz, m) {
     true,
   );
 }
-function houndModel(d, load) {
+function houndModel(d, load, snap) {
   const breath = Math.sin(run.phase * 3 + d.home) * 0.65;
-  const h = 32 + breath - load * 6;
+  const h = 32 + breath - load * 10 + snap * 4;
   // Pelvis, tucked belly, deep rib cage, withers and sloping neck.
   sculpt(
     [
@@ -176,7 +176,7 @@ function houndModel(d, load) {
         true,
       );
   }
-  const jaw = load * 3 + 1;
+  const jaw = load * 9 + 1;
   sculpt(
     [
       [20, h + 14, 0, 6, 7],
@@ -313,13 +313,12 @@ function warBlade(hand, tip) {
     true,
   );
 }
-function armoredModel(d, load, boss) {
+function armoredModel(d, pose, boss, contact, bind) {
   const breath =
     Math.sin(run.phase * 2 + d.home) * 0.7 +
     (d.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0) * 0.14;
-  const contactAge = run.phase - (d.deflectedAt ?? -10);
-  const beat = ease(contactAge / .12) * (1 - ease((contactAge - .12) / .25));
-  const surge = d.wind >= 0 ? load * 3 : 0,
+  const load = pose.lift * (1 - pose.strike);
+  const surge = (-5 * load + 7 * pose.strike) * (1 - pose.recover),
     shoulder = 80 + breath,
     plate = boss ? 4 : 14;
   scene.unit = boss ? 1.17 : 1;
@@ -373,10 +372,10 @@ function armoredModel(d, load, boss) {
         6,
       );
     }
-    const recoil = s === 1 ? beat : 0;
-    const hand = [17 + load * 6 - 8 * recoil, 54 + load * 23 + breath + 9 * recoil,
-      s * 22 + (d.deflectSide || 1) * 10 * recoil],
-      elbow = [4, 60, s * 26];
+    const active = s === (boss && pose.reverse ? -1 : 1);
+    const { hand, elbow, tip } = active
+      ? weaponArm(s, pose, boss, breath, contact, bind)
+      : {hand: [17, 54 + breath, s*22], elbow: [4,60,s*26], tip: [51,94+breath,s*25]};
     sculpt(
       [
         [surge, shoulder - 2, s * 16, 8],
@@ -414,11 +413,11 @@ function armoredModel(d, load, boss) {
       );
     ovalMesh(...hand, 4.6, 4.5, 4, 2);
     if (s === 1 || boss) {
-      warBlade(hand, [
-        hand[0] + 34 - load * 38 - 30 * recoil,
-        hand[1] + 40 + load * 3,
-        s * 25 + (d.deflectSide || 1) * 34 * recoil,
-      ]);
+      warBlade(hand, tip);
+      if (active && d.wind >= 0 && pose.strike > 0 && pose.strike < .5) {
+        const edge = hand.map((n,i) => n + (tip[i] - n) * .74);
+        rod(edge, tip, 1.3, 7, true, 4);
+      }
     } else {
       const outline = [
         [21, 74, -20],

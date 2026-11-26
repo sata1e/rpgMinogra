@@ -1,4 +1,5 @@
-import { rollDuration } from "./combat-timing.js";
+import { attackPhases } from "./enemy-attacks.js";
+import { rollDuration, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import {
   clamp01,
@@ -1270,6 +1271,7 @@ function ronin() {
   const a = point(v.guard),
     b = point(v.middle),
     c = point(v.tip);
+  scene.heroBladeMiddle = worldPoint(b);
   rod([a[0], a[1], a[2] - 4], [a[0], a[1], a[2] + 4], 1.8, 3, true);
   if (p.exposed < 0.008) return;
   const normal = [-Math.cos(p.yaw)*Math.sin(p.pitch), Math.cos(p.pitch), -Math.sin(p.yaw)*Math.sin(p.pitch)];
@@ -1325,6 +1327,19 @@ function impactTilt(actor, pivot) {
       }
     : null;
 }
+// Undo the enemy's own render transform so both weapons use the same world-space contact.
+function enemyLocalPoint(point, scale) {
+  let x = point[0] - origin[0], h = point[1], z = point[2] - origin[2];
+  if (bodyTilt && h > bodyTilt.pivot) {
+    const {nx, nz, sin, cos, pivot} = bodyTilt;
+    const along = x * nx + z * nz, above = h - pivot;
+    const offset = along * (cos - 1) - above * sin;
+    x += nx * offset; z += nz * offset;
+    h = pivot + above * cos + along * sin;
+  }
+  const c = Math.cos(orientation), s = Math.sin(orientation);
+  return [(x*c + z*s)/scale, h/scale, (z*c - x*s)/scale];
+}
 function demon(d) {
   const twistAge = run.phase - (d.turnAt ?? -10);
   const twist =
@@ -1335,11 +1350,31 @@ function demon(d) {
     (d.feet?.angle ??
       Math.atan2((run.depth - d.y) / depthRatio, run.pos - d.x)) + twist,
   );
-  const load = d.wind >= 0 ? clamp01((run.phase - d.wind) / enemyWindup(d)) : 0;
+  const winding = d.wind >= 0;
+  const sinceHit = run.phase - (d.struckAt ?? -10);
+  const following = !winding && sinceHit < .32;
+  const {lift, strike} = winding ? attackPhases(run.phase - d.wind, enemyWindup(d))
+    : {lift: Number(following), strike: Number(following)};
+  const recover = following ? ease(sinceHit / .32) : 0;
+  const load = lift * (1 - strike) * (1 - recover);
   const start = scene.faces.length;
-  if (d.type === 0) houndModel(d, load);
+  if (d.type === 0) houndModel(d, load, strike * (1 - recover));
   else if (d.type === 1) mournerModel(d, load);
-  else armoredModel(d, load, d.type === 3);
+  else {
+    const contactAge = run.phase - (d.deflectedAt ?? -10);
+    const deflect = ease(contactAge / .12) * (1 - ease((contactAge - .12) / .25));
+    const guardAge = run.phase - run.guardAt;
+    const dx = d.x - run.pos, dz = roadZ(d.y) - roadZ(run.depth);
+    const distance = Math.hypot(dx, dz);
+    const guarding = winding && run.deflectedAt < run.guardAt && guardAge >= 0 && guardAge < parryTiming.close &&
+      distance < enemies[d.kind].range + 20 && dx * run.heading.x + dz * run.heading.y >= .5 * distance;
+    const bind = contactAge < .22 && d.deflectedAt === run.deflectedAt
+      ? 1 - ease((contactAge - .09) / .13)
+      : guarding ? strike * ease(guardAge / parryTiming.open) : 0;
+    const boss = d.type === 3;
+    const point = bind ? enemyLocalPoint(scene.heroBladeMiddle, boss ? 1.17 : 1) : null;
+    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse, side: d.deflectSide || 1}, boss, point, bind);
+  }
   if (d.kind === 4 || d.kind === 5) {
     const reed = d.kind === 4;
     for (let i = start; i < scene.faces.length; i++) {

@@ -772,6 +772,7 @@ function update(dt) {
         d.y = d.y + ((d.aimY * dt * 215) / difficulty.windup) * depthRatio;
       }
       if (run.phase - d.wind >= windup) {
+        d.struckAt = run.phase;
         const inStrike =
           d.type === 1
             ? distanceTo(d.aimX, d.aimY) < 47
@@ -836,6 +837,7 @@ function update(dt) {
         d.ready = d.exposed;
         if (d.type === 3 && d.chain > 0) {
           d.chain--;
+          d.reverse = !d.reverse;
           d.wind = run.phase;
           d.aimX = -dx / (dist || 1);
           d.aimY = -dy / (dist || 1);
