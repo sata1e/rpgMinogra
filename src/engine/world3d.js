@@ -1606,6 +1606,7 @@ function recordVeil(pixel, depth, surface) {
   veilLayers[n].surface[pixel] = surface;
 }
 const fades = new Map(), opacity = [1], freeFadeIds = [];
+const clearHoldMs = 350;
 let fadeFrame = 0, lastFadeTime;
 function veilId(object, blocked, dynamic = false) {
   let fade = fades.get(object);
@@ -1613,7 +1614,7 @@ function veilId(object, blocked, dynamic = false) {
     if (!blocked) return 0;
     const id = freeFadeIds.pop() ?? opacity.length;
     opacity[id] = 1;
-    fade = {id, amount:0, blocked, dynamic, seen:fadeFrame};
+    fade = {id, amount:0, blocked, dynamic, seen:fadeFrame, clearSince:null};
     fades.set(object, fade);
   }
   fade.blocked = blocked;
@@ -1625,7 +1626,14 @@ function advanceFades(now, rebuilt) {
   lastFadeTime = now;
   for (const [object,fade] of fades) {
     if ((rebuilt || fade.dynamic) && fade.seen !== fadeFrame) fade.blocked = false;
-    fade.amount = Math.max(0, Math.min(1, fade.amount + (fade.blocked ? dt/260 : -dt/420)));
+    if (fade.blocked) {
+      fade.clearSince = null;
+      fade.amount = Math.min(1, fade.amount + dt/260);
+    } else {
+      fade.clearSince ??= now;
+      const restoringMs = Math.min(dt, Math.max(0, now - fade.clearSince - clearHoldMs));
+      fade.amount = Math.max(0, fade.amount - restoringMs/420);
+    }
     opacity[fade.id] = 1 - .87*ease(fade.amount);
     if (!fade.blocked && fade.amount === 0) {
       fades.delete(object);
