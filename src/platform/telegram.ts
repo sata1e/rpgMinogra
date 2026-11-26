@@ -47,11 +47,12 @@ export async function connectTelegram(pause: () => void) {
   if (app.isVersionAtLeast("6.1")) {
     app.BackButton.onClick(pause);
     const syncBackButton = () => {
-      if (document.querySelector<HTMLElement>(".overlay")?.hidden)
+      if (document.querySelector<HTMLElement>(".overlay")?.hidden && !document.querySelector<HTMLDialogElement>("#defeat")?.open)
         app.BackButton.show();
       else app.BackButton.hide();
     };
     document.addEventListener("game:pause", syncBackButton);
+    document.addEventListener("game:defeat", syncBackButton);
     syncBackButton();
   }
 }

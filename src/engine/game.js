@@ -1,5 +1,6 @@
 import {
   resume,
+  returnToMenu,
   $,
   chooseDifficulty,
   toggleBlade,
@@ -72,6 +73,17 @@ export function pauseGame() {
 }
 function bindControls() {
   document.addEventListener("game:pause", syncCursor);
+  const defeat = $("#defeat");
+  const actions = defeat.querySelector(".defeat-actions");
+  document.addEventListener("game:defeat", () => {
+    if (defeat.open) return;
+    actions.inert = true;
+    defeat.showModal();
+    setTimeout(() => { if (defeat.open) actions.inert = false; }, 1000);
+  });
+  defeat.addEventListener("cancel", e => e.preventDefault());
+  $("#defeatMenu").onclick = () => { defeat.close(); returnToMenu(); };
+  $("#defeatRestart").onclick = e => { defeat.close(); resumeGame(e); };
   const selector = $("#difficulty");
   selector.onchange = () => chooseDifficulty(selector.value);
   chooseDifficulty(selector.value);
@@ -168,6 +180,7 @@ function bindControls() {
     }
   };
   window.onkeydown = (e) => {
+    if (defeat.open) return;
     if (!run.paused && (e.code === "AltLeft" || e.code === "AltRight")) {
       e.preventDefault();
       run.windAt = null;

@@ -125,6 +125,15 @@
         ><button id="pick">Действие</button>
       </div>
     </main>
+    <dialog id="defeat" aria-labelledby="defeatTitle">
+      <div class="defeat-panel">
+        <h2 id="defeatTitle" tabindex="-1" autofocus>ВЫ МЕРТВЫ</h2>
+        <div class="defeat-actions" inert>
+          <button id="defeatMenu">В главное меню</button>
+          <button id="defeatRestart">Начать заново</button>
+        </div>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

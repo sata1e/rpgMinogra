@@ -252,3 +252,26 @@ button {
   .menu-panel { gap: 7px }
   #weaponPreview { height: 22px; width: auto; max-width: 100% }
 }
+
+#defeat {
+  position: fixed; inset: 0; margin: 0; box-sizing: border-box;
+  width: 100%; height: 100%; max-width: none; max-height: none;
+  border: 0; padding: 20px; color: #f4dfc8; background: transparent;
+}
+#defeat[open] { display: grid; place-items: center; }
+#defeat::backdrop { background: radial-gradient(ellipse, #180a0ae8, #090706fa 78%); }
+.defeat-panel { width: 100%; text-align: center; }
+#defeatTitle {
+  font: 500 clamp(2.5rem, 10vw, 10rem)/1.1 Georgia, serif;
+  letter-spacing: .06em; color: #d26a58; outline: none;
+}
+.defeat-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 2rem; }
+.defeat-actions[inert] { opacity: 0; }
+#defeat[open] .defeat-actions:not([inert]) { animation: defeat-appear .55s ease-out both; }
+#defeatRestart { background: var(--seal); border-color: #c47c61; color: white; }
+@keyframes defeat-appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  #defeat[open] .defeat-actions:not([inert]) { animation: none; }
+}
+
+html:has(#defeat[open]) { overflow: hidden; }

@@ -522,10 +522,14 @@ function modal(open) {
   run.windAt = null;
   run.paused = open;
   keys.clear();
-  $(".overlay").hidden = !open;
+  $(".overlay").hidden = !open || dead;
   $("#chargeHud").hidden = true;
   $("#armory").hidden = !(starting || won || dead);
   document.dispatchEvent(new CustomEvent("game:pause", { detail: open }));
+  if (open && dead) {
+    document.dispatchEvent(new Event("game:defeat"));
+    return;
+  }
   setText(
     "#modalTitle",
     won
@@ -548,45 +552,53 @@ function modal(open) {
   );
   setText("#pause", open ? "▷" : "Ⅱ");
 }
+function resetRun() {
+  run.cleanAt = -10;
+  run.fromSheath = true;
+  run.impactPause = 0;
+  heroMotion.recoil = null;
+  run.bladeOut = false;
+  run.bladeChanged = -10;
+  run.opponent = null;
+  resetScenery();
+  spawnGuards();
+  run.pos = 350;
+  cam = Math.max(0, run.pos - 350);
+  run.depth = trackY;
+  run.heading = { x: 1, y: 0 };
+  depthVelocity = 0;
+  health = 100;
+  velocity = 0;
+  motion.stride = 0;
+  motion.gait = 0;
+  face = 1;
+  spirit = 100;
+  run.combo = 0;
+  run.guardAt =
+    riposteUntil =
+    run.attackAt =
+    run.rollAt =
+    hurtAt =
+    motion.lastPick =
+      -10;
+  feedbackUntil = 0;
+  run.spent = true;
+  won = dead = false;
+  run.deflectedAt = -10;
+  riposteTarget = null;
+  nextLight = 0;
+  struck.clear();
+}
+export function returnToMenu() {
+  resetRun();
+  starting = true;
+  ui();
+  modal(true);
+  $("#resume").focus();
+}
 function resume() {
+  if (won || dead) resetRun();
   starting = false;
-  if (won || dead) {
-    const fallen = won ? [] : guards.map((d) => d.hp === 0);
-    run.cleanAt = -10;
-    run.fromSheath = true;
-    run.impactPause = 0;
-    heroMotion.recoil = null;
-    run.bladeOut = false;
-    run.bladeChanged = -10;
-    run.opponent = null;
-    resetScenery();
-    spawnGuards();
-    fallen.forEach((dead, i) => {
-      if (dead) guards[i].hp = 0;
-    });
-    run.pos = 350;
-    cam = Math.max(0, run.pos - 350);
-    run.depth = trackY;
-    run.heading = { x: 1, y: 0 };
-    depthVelocity = 0;
-    health = 100;
-    velocity = 0;
-    motion.stride = 0;
-    motion.gait = 0;
-    face = 1;
-    spirit = 100;
-    run.combo = 0;
-    run.guardAt =
-      riposteUntil =
-      run.attackAt =
-      run.rollAt =
-      hurtAt =
-      motion.lastPick =
-        -10;
-    feedbackUntil = 0;
-    run.spent = true;
-    won = dead = false;
-  }
   modal(false);
   ui();
 }
