@@ -532,3 +532,5 @@ kbd {
 }
 
 html.hide-game-cursor, html.hide-game-cursor * { cursor: none !important; }
+
+#scene { -webkit-user-select: none; user-select: none; }

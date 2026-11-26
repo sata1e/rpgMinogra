@@ -25,10 +25,12 @@ view.cameraPitch = 0.19;
 view.cameraRange = 276;
 view.mouseLook = false;
 let hadLock = false;
+let requestingLock = false;
+let edgeTurn = 0;
 let releasingLock = false;
 const heldAlts = new Set();
 function syncCursor() {
-  document.documentElement.classList.toggle("hide-game-cursor", !run.paused && heldAlts.size === 0);
+  document.documentElement.classList.toggle("hide-game-cursor", document.pointerLockElement === canvas && !run.paused && heldAlts.size === 0);
 }
 function releaseMouse() {
   if (document.pointerLockElement === canvas && !releasingLock) {
@@ -38,14 +40,21 @@ function releaseMouse() {
 }
 function startMouseLook() {
   if (run.paused || heldAlts.size || releasingLock) return;
-  if (!window.matchMedia("(pointer:fine)").matches) return;
-  view.mouseLook = true;
-  // Embedded previews can deny pointer lock. Hover-look still works there.
+  if (!window.matchMedia("(any-pointer:fine)").matches || requestingLock ||
+      document.pointerLockElement === canvas || !canvas.requestPointerLock) return;
+  requestingLock = true;
   try {
-    canvas.requestPointerLock?.()?.catch(() => {});
-  } catch {}
+    canvas.requestPointerLock()?.catch(lockFailed);
+  } catch {
+    lockFailed();
+  }
+}
+function lockFailed() {
+  requestingLock = false;
+  syncCursor();
 }
 function resetMouse() {
+  edgeTurn = 0;
   heldAlts.clear();
   releaseMouse();
 }
@@ -85,6 +94,7 @@ function bindControls() {
     if (run.paused || heldAlts.size || (e.button !== 0 && e.button !== 2) || run.windAt !== null) return;
     e.preventDefault();
     view.mouseLook = true;
+    startMouseLook();
     drawSword();
     attack(e.button === 2 ? 1 : 0);
   };
@@ -100,9 +110,23 @@ function bindControls() {
     if (document.pointerLockElement !== canvas && e.target !== canvas) return;
     view.mouseLook = true;
     orbit(e.movementX, e.movementY);
+    // When a WebView forbids pointer lock, the edge keeps turning the camera.
+    edgeTurn = 0;
+    if (document.pointerLockElement !== canvas) {
+      const bounds = canvas.getBoundingClientRect();
+      const x = e.clientX - bounds.left;
+      const band = Math.min(32, bounds.width * 0.08);
+      if (band > 0) edgeTurn = x < band ? x / band - 1 :
+        x > bounds.width - band ? 1 - (bounds.width - x) / band : 0;
+    }
   });
+  canvas.addEventListener("mouseleave", () => { edgeTurn = 0; });
+  document.addEventListener("pointerlockerror", lockFailed);
   document.addEventListener("pointerlockchange", () => {
     const locked = document.pointerLockElement === canvas;
+    requestingLock = false;
+    edgeTurn = 0;
+    syncCursor();
     const wasLocked = hadLock;
     hadLock = locked;
     if (locked && (heldAlts.size || run.paused)) releaseMouse();
@@ -149,6 +173,7 @@ function bindControls() {
   window.onkeydown = (e) => {
     if (!run.paused && (e.code === "AltLeft" || e.code === "AltRight")) {
       e.preventDefault();
+      edgeTurn = 0;
       heldAlts.add(e.code);
       syncCursor();
       releaseMouse();
@@ -209,6 +234,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - run.last) / 1000);
   run.last = now;
   if (!run.paused) {
+    if (!heldAlts.size && !document.pointerLockElement) view.cameraYaw -= edgeTurn * 2.6 * dt;
     const steps = Math.max(1, Math.ceil(dt * 90));
     for (let i = 0; i < steps && !run.paused; i++) {
       const frozen = Math.min(run.impactPause, dt / steps);
