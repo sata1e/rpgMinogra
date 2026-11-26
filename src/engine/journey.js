@@ -263,14 +263,23 @@ function combatFacing(fallback) {
 }
 run.bladeOut = false;
 run.bladeChanged = -10;
+// Manual draws and returns keep their own tempo. A step already in flight
+// supplies the first support beat of the change in posture.
+let supportDelay = 0, turnFrom = 0;
+function bladeDuration() { return run.bladeOut ? .82 : 1.02; }
+export function bladeProgress() {
+  return Math.max(0, Math.min(1, (run.phase-run.bladeChanged)/bladeDuration()));
+}
 export function combatStance() {
-  const drawn = ease((run.phase - run.bladeChanged) / .48);
-  return run.bladeOut ? drawn : 1 - drawn;
+  const t = bladeProgress();
+  const start = (run.bladeOut ? .09 : .18) + supportDelay;
+  const weight = ease((t-start)/(1-start));
+  return run.bladeOut ? weight : 1-weight;
 }
 function toggleBlade() {
   if (
     run.paused || run.fall ||
-    run.phase - run.bladeChanged < 0.48 ||
+    bladeProgress() < 1 ||
     run.windAt !== null ||
     run.phase - run.attackAt < cut().duration ||
     run.phase - run.rollAt < rollDuration || run.phase - run.guardAt < parryTiming.recover
@@ -280,13 +289,16 @@ function toggleBlade() {
   riposteUntil = -10;
   run.bladeOut = !run.bladeOut;
   run.bladeChanged = run.phase;
+  const rig = heroMotion.feet;
+  supportDelay = rig ? Math.min(.22, Math.max(0, rig.duration-rig.time)/bladeDuration()) : 0;
+  turnFrom = Math.atan2(run.heading.y,run.heading.x);
   ping(run.bladeOut ? 440 : 250);
   ui();
 }
 function drawSword() {
   if (
     run.paused || run.fall ||
-    run.phase - run.bladeChanged < 0.48 ||
+    bladeProgress() < 1 ||
     run.windAt !== null ||
     run.phase - run.attackAt < cut().duration ||
     run.phase - run.rollAt < rollDuration ||
@@ -328,7 +340,7 @@ function whisper(message) {
 function parry() {
   if (
     run.paused || run.fall ||
-    run.phase - run.bladeChanged < 0.48 ||
+    bladeProgress() < 1 ||
     run.phase - run.guardAt < 0.68 ||
     run.phase - run.attackAt < cut().end ||
     run.phase - run.rollAt < rollDuration ||
@@ -722,7 +734,12 @@ function update(dt) {
     const fallback = run.bladeOut
       ? {x: -Math.sin(view.cameraYaw), y: -Math.cos(view.cameraYaw)}
       : norm ? travel : run.heading;
-    run.heading = combatFacing(fallback);
+    const target = combatFacing(fallback);
+    if (bladeProgress() < 1) {
+      const delta = Math.atan2(target.y,target.x)-turnFrom;
+      const yaw = turnFrom + Math.atan2(Math.sin(delta),Math.cos(delta)) * ease(bladeProgress());
+      run.heading = {x:Math.cos(yaw), y:Math.sin(yaw)};
+    } else run.heading = target;
   }
   face = Math.sign(run.heading.x) || face;
   const direction = rolling ? run.rollDir : swing ? run.attackDir : travel;

@@ -2,7 +2,7 @@ import { loweredHeight } from "./demon-fall.js";
 import { parryTiming, riposteWindow } from "./combat-timing.js";
 import { groundHeight } from "./valley.js";
 import { weapon } from "./weapons.js";
-import { cut, run, depthRatio, trackY } from "./journey.js";
+import { bladeProgress, cut, run, depthRatio, trackY } from "./journey.js";
 import { impactTilt, demonFacing, demonAttackPose, houndBackHeight } from "./world3d.js";
 const motion = {};
 motion.gait = 0;
@@ -53,7 +53,7 @@ function katanaPose(age) {
   const sinceContact = run.phase - run.deflectedAt;
   const blocking = run.guardAt > run.rollAt && !midCut &&
     (parryAge < parryTiming.recover || sinceContact < riposteWindow);
-  const transition = clamp01((run.phase - run.bladeChanged) / 0.48);
+  const transition = bladeProgress();
   const carry = run.bladeOut ? transition : 1 - transition;
   const readyHand = [19, 2, 57],
     axis = bladeAxis(-1.72, -1.02);
@@ -94,7 +94,7 @@ function katanaPose(age) {
   );
   const drawn = mouth.map(
     (n, i) =>
-      n - axis[i] * weapon.length * exposed - (i === 2 ? 2.3 * exposed : 0),
+      n - axis[i] * weapon.length * exposed - (i === 2 ? weapon.curve * exposed * exposed : 0),
   );
   let hand = blend3(drawn, readyHand, ready),
     yaw = mix(-1.72, 0.16, ready),
@@ -195,6 +195,8 @@ function katanaPose(age) {
       ? 0
       : ready;
   return {
+    carryReady: ready,
+    sheathHold: !midCut && !blocking ? reach * (1-ready) : 0,
     supportGrip: weapon.grip < 11 ? 0 : supportGrip,
     reach,
     exposed,

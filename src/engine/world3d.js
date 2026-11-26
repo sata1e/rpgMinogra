@@ -1161,9 +1161,10 @@ function ronin() {
   p.shift += 2 * stance;
   p.coil -= .16 * stance;
   if (stance && run.phase - run.cleanAt >= .49) {
-    p.tsuba = blend3(p.tsuba,[25,-1,57],stance);
-    p.pitch = mix(p.pitch,.43,stance);
-    p.yaw = mix(p.yaw,-.08,stance);
+    const guard = stance * (p.carryReady ?? 0);
+    p.tsuba = blend3(p.tsuba,[25,-1,57],guard);
+    p.pitch = mix(p.pitch,.43,guard);
+    p.yaw = mix(p.yaw,-.08,guard);
   }
   let counterSwing=0;
   if (walking) {
@@ -1171,11 +1172,18 @@ function ronin() {
     const right=localFoot(heroMotion,1,humanFeet)[0]-humanFeet[1][0];
     counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking*(1-.75*stance);
     const transfer=(rig.feet[0].h-rig.feet[1].h)*walking;
-    p.lateral+=transfer*.22;
-    p.coil+=counterSwing*.13;
+    const sheathHold = p.sheathHold ?? 0;
+    p.lateral += transfer * (.22 + .18 * sheathHold);
+    p.coil += counterSwing*.13 - .12*sheathHold;
     p.shift+=1.5*walking;
     p.drop+=walking*(1.3+Math.abs(counterSwing)*1.1);
-    p.tsuba=[p.tsuba[0]+counterSwing*2,p.tsuba[1]+walking*2,p.tsuba[2]-(p.drop-6*stance)];
+    // Move the carrier with the pelvis. Until the tip clears it, the hilt
+    // receives the same translation, even when a foot lands mid-draw.
+    const sway = [counterSwing*1.1,p.lateral,-p.drop];
+    const ready = p.carryReady ?? 1;
+    p.mouth = p.mouth.map((n,i)=>n+sway[i]);
+    const handSway = [counterSwing*2,walking*2,-(p.drop-6*stance)];
+    p.tsuba = p.tsuba.map((n,i)=>n+mix(sway[i],handSway[i],ready));
   }
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
@@ -1339,9 +1347,10 @@ function ronin() {
     p.exposed,
   );
   const pommelHand = blend3(point(v.guard), point(v.rear), 0.83);
+  const sheathHand = blend3(support, saya(.06), p.sheathHold ?? 0);
   arm3(
     shoulderPoint([shoulder, neck - 8, -13]),
-    blend3(blend3(support, pommelHand, p.supportGrip), [shoulder + 8, neck + 3, -7], tuck),
+    blend3(blend3(sheathHand, pommelHand, p.supportGrip), [shoulder + 8, neck + 3, -7], tuck),
     -1,
   );
   arm3(shoulderPoint([shoulder + 2, neck - 8, 13]),

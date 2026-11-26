@@ -133,6 +133,10 @@ function advanceFeet(b, dt) {
         fromX: f.x,
         fromZ: f.z,
         toX, toZ,
+        clearance: mix(1, .53, stance) * Math.min(
+          hero ? [8,6,12][groundKind(toX,toZ)] : 10,
+          Math.hypot(toX-f.x,toZ-f.z)*.24,
+        ),
       });
     });
   }
@@ -147,7 +151,7 @@ function advanceFeet(b, dt) {
       t === 1
         ? 0
         : Math.sin((hero && !braced ? ease(t) : t) * Math.PI) *
-          mix(1, .53, stance) * Math.min(hero ? [8, 6, 12][groundKind(f.toX,f.toZ)] : 10, Math.hypot(f.toX - f.fromX, f.toZ - f.fromZ) * 0.24);
+          f.clearance;
     if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
 
   });
