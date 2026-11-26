@@ -80,7 +80,12 @@ function katanaPose(age) {
     const transfer = ease((age - move.start + 0.045) / (move.end - move.start));
     load = prepare * (1 - recover);
     shift = load * mix(run.combo ? -6 : -3, run.combo ? 8 : 5, transfer);
-    lateral = side * load * mix(-3.4, 3.4, transfer);
+    if (move.entry) {
+      const planted = ease((age-move.entry.landAt) /
+        Math.max(.04, move.end-move.entry.landAt));
+      lateral = move.entry.leadSide * load * mix(-1.7, 4.8, planted);
+      shift += 2.2 * load * planted;
+    } else lateral = side * load * mix(-3.4, 3.4, transfer);
     shrug = load * (run.combo ? 5 : 2) * (1 - impact);
     turn = impact * (1 - recover);
     drop = load * ((run.combo ? 5 : 3) + 2 * impact);
@@ -195,7 +200,7 @@ function katanaPose(age) {
       ? 0
       : ready;
   return {
-    carryReady: ready,
+    carryReady: midCut ? mix(ready,1,ease((age-move.end)/(move.duration-move.end))) : ready,
     sheathHold: !midCut && !blocking ? reach * (1-ready) : 0,
     supportGrip: weapon.grip < 11 ? 0 : supportGrip,
     reach,

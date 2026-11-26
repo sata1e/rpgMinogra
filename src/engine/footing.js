@@ -50,8 +50,9 @@ function advanceFeet(b, dt) {
   }
   const c = Math.cos(angle),
     s = Math.sin(angle);
-  const braced =
-    hero && (run.windAt !== null || run.phase - run.attackAt < cut().duration);
+  const attackAge = run.phase-run.attackAt;
+  const entry = hero && attackAge < cut().end ? cut().entry : null;
+  const braced = hero && attackAge < cut().end;
   const stance = hero && !braced ? combatStance() : 0;
   const along = (dx*c + dz*s) / (speed*dt || 1);
   const sideways = (-dx*s + dz*c) / (speed*dt || 1);
@@ -80,6 +81,7 @@ function advanceFeet(b, dt) {
     rig.time = rig.duration;
     return;
   }
+  if (entry && rig.time >= rig.duration) return;
   if (rig.time >= rig.duration) {
     let error = 0;
     rig.feet.forEach((f, i) => {
@@ -130,6 +132,7 @@ function advanceFeet(b, dt) {
         toZ += c*correction;
       }
       Object.assign(f, {
+        walking: hero && !braced,
         fromX: f.x,
         fromZ: f.z,
         toX, toZ,
@@ -140,17 +143,17 @@ function advanceFeet(b, dt) {
       });
     });
   }
-  rig.time = Math.min(rig.duration, rig.time + dt);
-  const t = rig.time / rig.duration,
-    u = hero && !braced ? ease((t-.055)/.89) : ease(t);
+  rig.time = Math.min(rig.duration, rig.time + dt*(entry?.footRate ?? 1));
+  const t = rig.time / rig.duration;
   rig.feet.forEach((f, i) => {
     if (pattern[i][2] !== rig.group) return;
+    const u = f.walking ? ease((t-.055)/.89) : ease(t);
     f.x = mix(f.fromX, f.toX, u);
     f.z = mix(f.fromZ, f.toZ, u);
     f.h =
       t === 1
         ? 0
-        : Math.sin((hero && !braced ? ease(t) : t) * Math.PI) *
+        : Math.sin((f.walking ? ease(t) : t) * Math.PI) *
           f.clearance;
     if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
 

@@ -509,6 +509,23 @@ function attack(requestedStyle) {
     strikeTurn = Math.atan2(Math.sin(delta), Math.cos(delta));
   }
   const yaw = strikeStartYaw + strikeTurn;
+  // Use this step's actual landing points in the direction of the cut.
+  // An airborne foot finishes its arc; a planted foot stays where it is.
+  const rig = heroMotion.feet;
+  let lead = 1, landing = 0;
+  if (rig) {
+    const airborne = rig.time < rig.duration;
+    const projection = rig.feet.map((foot,i) => {
+      const swinging = airborne && rig.group === i;
+      return (swinging ? foot.toX : foot.x)*Math.cos(yaw) +
+        (swinging ? foot.toZ : foot.z)*Math.sin(yaw);
+    });
+    lead = projection[0] > projection[1] ? 0 : 1;
+    if (airborne && lead === rig.group) landing = rig.duration-rig.time;
+  }
+  const contactBeat = activeCut.start + .46*(activeCut.end-activeCut.start);
+  activeCut.entry = {vx:velocity, vz:depthVelocity, leadSide:lead ? 1 : -1,
+    landAt:Math.min(landing,contactBeat), footRate:Math.max(1,landing/contactBeat)};
   let nearest = weapon.length + base.step + 58;
   activeCut.lowAim = 0;
   for (const d of guards) {
@@ -768,8 +785,19 @@ function update(dt) {
   const guardSpeed = facingDot >= 0 ? 46 + 20 * facingDot : 46 + 8 * facingDot;
   const travelSpeed = rolling || swing ? speed :
     mix(relaxedSpeed, Math.min(speed, guardSpeed), combatStance());
-  const vx = direction.x * travelSpeed,
-    vz = direction.y * travelSpeed;
+  let vx = direction.x * travelSpeed, vz = direction.y * travelSpeed;
+  const entry = cut().entry;
+  if (!rolling && entry && attackAge < cut().duration) {
+    if (swing) {
+      const carry = 1-ease(attackAge/(cut().start + .24*(cut().end-cut().start)));
+      vx += entry.vx*carry;
+      vz += entry.vz*carry;
+    } else {
+      const resume = ease((attackAge-cut().end)/(.7*(cut().duration-cut().end)));
+      vx *= resume;
+      vz *= resume;
+    }
+  }
   const reversing = velocity * vx + depthVelocity * vz < 0;
   const rate = !norm && !swing ? 2300 : reversing ? 2700 : swing ? 1850 : 1560;
   const fraction = Math.min(

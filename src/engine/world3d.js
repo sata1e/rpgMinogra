@@ -1153,15 +1153,20 @@ function ronin() {
     p.mouth[2] -= 25 * tuck;
   }
   const rig = heroMotion.feet;
-  const locomotion = !groundPose && age >= cut().duration &&
-    run.phase-run.guardAt > .5 && run.windAt === null;
-  const walking = rig && locomotion ? motion.stride : 0;
-  const stance = locomotion ? combatStance() : 0;
-  p.drop += 6 * stance;
-  p.shift += 2 * stance;
-  p.coil -= .16 * stance;
-  if (stance && run.phase - run.cleanAt >= .49) {
-    const guard = stance * (p.carryReady ?? 0);
+  const move = cut();
+  const inCut = age >= 0 && age < move.duration;
+  const entering = inCut && move.entry ? 1-ease(age/move.start) : 0;
+  const recovering = inCut && move.entry ? ease((age-move.end)/(move.duration-move.end)) : 0;
+  const gaitBlend = groundPose || run.phase-run.guardAt <= .5 ? 0 :
+    inCut ? entering+recovering : 1;
+  const walking = rig ? motion.stride*gaitBlend : 0;
+  const stance = inCut ? (run.fromSheath ? 0 : entering)+recovering : combatStance();
+  const guardStance = groundPose || run.phase-run.guardAt <= .5 ? 0 : stance;
+  p.drop += 6 * guardStance;
+  p.shift += 2 * guardStance;
+  p.coil -= .16 * guardStance;
+  if (guardStance && run.phase - run.cleanAt >= .49) {
+    const guard = guardStance * (p.carryReady ?? 0);
     p.tsuba = blend3(p.tsuba,[25,-1,57],guard);
     p.pitch = mix(p.pitch,.43,guard);
     p.yaw = mix(p.yaw,-.08,guard);
@@ -1170,7 +1175,7 @@ function ronin() {
   if (walking) {
     const left=localFoot(heroMotion,0,humanFeet)[0]-humanFeet[0][0];
     const right=localFoot(heroMotion,1,humanFeet)[0]-humanFeet[1][0];
-    counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking*(1-.75*stance);
+    counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking*(1-.75*guardStance);
     const transfer=(rig.feet[0].h-rig.feet[1].h)*walking;
     const sheathHold = p.sheathHold ?? 0;
     p.lateral += transfer * (.22 + .18 * sheathHold);
@@ -1182,7 +1187,7 @@ function ronin() {
     const sway = [counterSwing*1.1,p.lateral,-p.drop];
     const ready = p.carryReady ?? 1;
     p.mouth = p.mouth.map((n,i)=>n+sway[i]);
-    const handSway = [counterSwing*2,walking*2,-(p.drop-6*stance)];
+    const handSway = [counterSwing*2,walking*2,-(p.drop-6*guardStance)];
     p.tsuba = p.tsuba.map((n,i)=>n+mix(sway[i],handSway[i],ready));
   }
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
@@ -1230,7 +1235,7 @@ function ronin() {
       const forwardStep=rig.feet[rig.group];
       const along=(forwardStep.toX-forwardStep.fromX)*Math.cos(rig.angle)+
         (forwardStep.toZ-forwardStep.fromZ)*Math.sin(rig.angle);
-      const pitch=Number.isFinite(along) ? Math.tanh(along/20)*walking*(1-.72*stance)*(swing ?
+      const pitch=Number.isFinite(along) ? Math.tanh(along/20)*walking*(1-.72*guardStance)*(swing ?
         -.24*Math.sin(2*Math.PI*progress)+.13*ease((progress-.65)/.35) :
         .13*(1-ease(progress/.27))-.10*ease((progress-.74)/.26)) : 0;
       shoePitch={x:foot+(pitch>0?-4:5), y:lift+.5, cos:Math.cos(pitch), sin:Math.sin(pitch)};
