@@ -263,6 +263,10 @@ function combatFacing(fallback) {
 }
 run.bladeOut = false;
 run.bladeChanged = -10;
+export function combatStance() {
+  const drawn = ease((run.phase - run.bladeChanged) / .48);
+  return run.bladeOut ? drawn : 1 - drawn;
+}
 function toggleBlade() {
   if (
     run.paused || run.fall ||
@@ -715,7 +719,10 @@ function update(dt) {
     const yaw = strikeStartYaw + strikeTurn * ease(attackAge / cut().start);
     run.heading = run.attackDir = { x: Math.cos(yaw), y: Math.sin(yaw) };
   } else if (!rolling && run.phase - run.guardAt >= parryTiming.recover) {
-    run.heading = combatFacing(norm && !rolling ? travel : run.heading);
+    const fallback = run.bladeOut
+      ? {x: -Math.sin(view.cameraYaw), y: -Math.cos(view.cameraYaw)}
+      : norm ? travel : run.heading;
+    run.heading = combatFacing(fallback);
   }
   face = Math.sign(run.heading.x) || face;
   const direction = rolling ? run.rollDir : swing ? run.attackDir : travel;
@@ -737,10 +744,13 @@ function update(dt) {
         ? 72
         : 88;
   const facingDot = direction.x * run.heading.x + direction.y * run.heading.y;
-  const travelSpeed =
+  const relaxedSpeed =
     (run.opponent || view.mouseLook) && !rolling && !swing
       ? speed * (0.84 + 0.16 * facingDot)
       : speed;
+  const guardSpeed = facingDot >= 0 ? 46 + 20 * facingDot : 46 + 8 * facingDot;
+  const travelSpeed = rolling || swing ? speed :
+    mix(relaxedSpeed, Math.min(speed, guardSpeed), combatStance());
   const vx = direction.x * travelSpeed,
     vz = direction.y * travelSpeed;
   const reversing = velocity * vx + depthVelocity * vz < 0;

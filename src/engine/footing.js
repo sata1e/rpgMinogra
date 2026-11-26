@@ -1,6 +1,6 @@
 import { rollDuration } from "./combat-timing.js";
 import { groundHeight, groundKind, heroMotion } from "./valley.js";
-import { run, distanceTo, cut } from "./journey.js";
+import { run, distanceTo, cut, combatStance } from "./journey.js";
 import { roadZ } from "./world3d.js";
 import { ease, mix } from "./wanderer.js";
 
@@ -52,7 +52,12 @@ function advanceFeet(b, dt) {
     s = Math.sin(angle);
   const braced =
     hero && (run.windAt !== null || run.phase - run.attackAt < cut().duration);
+  const stance = hero && !braced ? combatStance() : 0;
+  const along = (dx*c + dz*s) / (speed*dt || 1);
+  const sideways = (-dx*s + dz*c) / (speed*dt || 1);
   const homes = pattern.map(([f, z]) => {
+    f += Math.sign(z) * stance * 4;
+    z += Math.sign(z) * stance * 4;
     if (braced) {
       f += Math.sign(z) * 9;
       z += Math.sign(z) * 2;
@@ -80,7 +85,10 @@ function advanceFeet(b, dt) {
     rig.feet.forEach((f, i) => {
       error = Math.max(error, Math.hypot(f.x - homes[i][0], f.z - homes[i][1]));
     });
-    if (error < 4) return;
+    if (error < 4) {
+      if (speed < 3) rig.hasStepped = false;
+      return;
+    }
     if (hero && (braced || speed < 12 || !rig.hasStepped)) {
       // Step with the foot furthest from its next support point, including pivots.
       const lead = Math.min(0.09, 12 / Math.max(speed, 1));
@@ -90,11 +98,16 @@ function advanceFeet(b, dt) {
           f.z - homes[i][1] - (dz / dt) * lead,
         ),
       );
-      rig.group = errors[0] > errors[1] ? 0 : 1;
+      if (stance > .5 && !rig.hasStepped && speed > 3) {
+        const leading = Math.abs(sideways) > Math.abs(along) ? sideways : along;
+        rig.group = leading > 0 ? 1 : 0;
+      } else rig.group = errors[0] > errors[1] ? 0 : 1;
     } else rig.group = 1 - rig.group;
     rig.hasStepped = true;
     const surface = groundKind(b.x, b.z);
-    rig.duration = hero && !braced ? [0.36, 0.335, 0.41][surface] : Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
+    const surfaceTime = [0.36, 0.335, 0.41][surface];
+    const guardTempo = mix(.57, .74, Math.max(0, along));
+    rig.duration = hero && !braced ? surfaceTime * mix(1, guardTempo, stance) : Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
     rig.time = 0;
     rig.feet.forEach((f, i) => {
       if (pattern[i][2] !== rig.group) return;
@@ -106,11 +119,20 @@ function advanceFeet(b, dt) {
         rig.duration * (hero ? 1 : 1.3) * catchStep,
         ((hero ? 16 : 30) * catchStep) / Math.max(1, speed),
       );
+      let toX = homes[i][0] + (dx / dt) * predict;
+      let toZ = homes[i][1] + (dz / dt) * predict;
+      if (stance > .5) {
+        // Maintain space between the landing foot and the planted one during a strafe.
+        const planted = rig.feet[1-i], side = Math.sign(pattern[i][1]);
+        const gap = side * (-(toX-planted.x)*s + (toZ-planted.z)*c);
+        const correction = Math.max(0, 7*stance-gap)*side;
+        toX -= s*correction;
+        toZ += c*correction;
+      }
       Object.assign(f, {
         fromX: f.x,
         fromZ: f.z,
-        toX: homes[i][0] + (dx / dt) * predict,
-        toZ: homes[i][1] + (dz / dt) * predict,
+        toX, toZ,
       });
     });
   }
@@ -125,7 +147,7 @@ function advanceFeet(b, dt) {
       t === 1
         ? 0
         : Math.sin((hero && !braced ? ease(t) : t) * Math.PI) *
-          Math.min(hero ? [8, 6, 12][groundKind(f.toX,f.toZ)] : 10, Math.hypot(f.toX - f.fromX, f.toZ - f.fromZ) * 0.24);
+          mix(1, .53, stance) * Math.min(hero ? [8, 6, 12][groundKind(f.toX,f.toZ)] : 10, Math.hypot(f.toX - f.fromX, f.toZ - f.fromZ) * 0.24);
     if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
 
   });

@@ -36,6 +36,7 @@ import {
   depthRatio,
   run,
   cut,
+  combatStance,
   enemyWindup,
   guards,
   activeGuard,
@@ -1152,19 +1153,29 @@ function ronin() {
     p.mouth[2] -= 25 * tuck;
   }
   const rig = heroMotion.feet;
-  const walking = rig && !groundPose && age >= cut().duration &&
-    run.phase-run.guardAt > .5 && run.windAt === null ? motion.stride : 0;
+  const locomotion = !groundPose && age >= cut().duration &&
+    run.phase-run.guardAt > .5 && run.windAt === null;
+  const walking = rig && locomotion ? motion.stride : 0;
+  const stance = locomotion ? combatStance() : 0;
+  p.drop += 6 * stance;
+  p.shift += 2 * stance;
+  p.coil -= .16 * stance;
+  if (stance && run.phase - run.cleanAt >= .49) {
+    p.tsuba = blend3(p.tsuba,[25,-1,57],stance);
+    p.pitch = mix(p.pitch,.43,stance);
+    p.yaw = mix(p.yaw,-.08,stance);
+  }
   let counterSwing=0;
   if (walking) {
     const left=localFoot(heroMotion,0,humanFeet)[0]-humanFeet[0][0];
     const right=localFoot(heroMotion,1,humanFeet)[0]-humanFeet[1][0];
-    counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking;
+    counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking*(1-.75*stance);
     const transfer=(rig.feet[0].h-rig.feet[1].h)*walking;
     p.lateral+=transfer*.22;
     p.coil+=counterSwing*.13;
     p.shift+=1.5*walking;
     p.drop+=walking*(1.3+Math.abs(counterSwing)*1.1);
-    p.tsuba=[p.tsuba[0]+counterSwing*2,p.tsuba[1]+walking*2,p.tsuba[2]-p.drop];
+    p.tsuba=[p.tsuba[0]+counterSwing*2,p.tsuba[1]+walking*2,p.tsuba[2]-(p.drop-6*stance)];
   }
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
@@ -1211,7 +1222,7 @@ function ronin() {
       const forwardStep=rig.feet[rig.group];
       const along=(forwardStep.toX-forwardStep.fromX)*Math.cos(rig.angle)+
         (forwardStep.toZ-forwardStep.fromZ)*Math.sin(rig.angle);
-      const pitch=Number.isFinite(along) ? Math.tanh(along/20)*walking*(swing ?
+      const pitch=Number.isFinite(along) ? Math.tanh(along/20)*walking*(1-.72*stance)*(swing ?
         -.24*Math.sin(2*Math.PI*progress)+.13*ease((progress-.65)/.35) :
         .13*(1-ease(progress/.27))-.10*ease((progress-.74)/.26)) : 0;
       shoePitch={x:foot+(pitch>0?-4:5), y:lift+.5, cos:Math.cos(pitch), sin:Math.sin(pitch)};
