@@ -1487,7 +1487,7 @@ function demon(d) {
       : guarding ? strike * ease(guardAge / parryTiming.open) : 0;
     const boss = d.type === 3;
     const point = bind ? enemyLocalPoint(scene.heroBladeMiddle, boss ? 1.17 : 1) : null;
-    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse, side: d.deflectSide || 1}, boss, point, bind, fall);
+    armoredModel(d, {lift, strike, recover, deflect, reverse: d.reverse, side: d.deflectSide || 1}, boss, point, bind, fall, winding && combatOpponent(d) ? addAttackSight : null);
   }
   if (d.kind === 4 || d.kind === 5) {
     const reed = d.kind === 4;
@@ -1649,10 +1649,23 @@ function advanceFades(now, rebuilt) {
 // wider torso has more samples than the head, so a single clipped edge has
 // little influence. Keep fighters separate when measuring the covered fraction.
 const sightBodies = [];
-const bodyRows = [[.17,.54,3], [.43,.79,4], [.69,1,5], [.89,.48,3]];
-function addSightBody(x,z,height,width,tilt,scale) {
+const bodyRows = [[.17,.54,3,.22], [.43,.79,4,.32], [.69,1,5,1.5], [.89,.48,3,1.25]];
+function addAttackSight(elbow, hand, tip) {
+  // These are the actual world-space joints of the attacking arm, after
+  // animation, weapon binding, body tilt and the boss's scale.
+  for (const [a,b,importance] of [[elbow,hand,.78],[hand,tip,.94]]) {
+    const points = [];
+    for (const t of [0,.25,.5,.75,1]) {
+      const p = blend3(a,b,t);
+      if (actorVisible(...p,0)) points.push([...p,1]);
+    }
+    if (points.length) sightBodies.push({points,total:5,importance});
+  }
+}
+function addSightBody(x,z,height,width,tilt,scale,enemy = false) {
   const points = [], floor = groundHeight(x,z);
-  for (const [level,span,count] of bodyRows) {
+  let total = 0;
+  for (const [level,span,count,enemyWeight] of bodyRows) {
     let h = height*level, cx = x, cz = z;
     if (tilt?.fall) h = loweredHeight(h,tilt.fall,scale);
     if (tilt && h > tilt.pivot) {
@@ -1664,15 +1677,18 @@ function addSightBody(x,z,height,width,tilt,scale) {
     for (let i=0; i<count; i++) {
       const offset = width*span*((2*i+1)/count-1);
       const px = cx+offset*right[0], pz = cz+offset*right[2];
-      if (actorVisible(px,floor+h,pz,0)) points.push([px,floor+h,pz]);
+      if (actorVisible(px,floor+h,pz,0)) {
+        const weight = enemy ? enemyWeight : 1;
+        points.push([px,floor+h,pz,weight]);
+        total += weight;
+      }
     }
   }
-  if (points.length) sightBodies.push(points);
+  if (points.length) sightBodies.push({points,total,importance:1});
 }
 const sceneryOccluders = new Map();
 function updateSceneryOccluders() {
   sceneryOccluders.clear();
-  sightBodies.length = 0;
   const low = run.fall || run.phase-run.rollAt < rollDuration;
   addSightBody(run.pos,roadZ(run.depth),low ? 40 : 103,low ? 31 : 18,null,1);
   for (const d of guards) {
@@ -1683,12 +1699,12 @@ function updateSceneryOccluders() {
       const angle = demonFacing(d);
       width += 22*Math.abs(Math.cos(angle)*right[0] + Math.sin(angle)*right[2]);
     }
-    addSightBody(d.x,roadZ(d.y),[50,96,106,125][d.type],width,tilt,d.type === 3 ? 1.17 : 1);
+    addSightBody(d.x,roadZ(d.y),[50,96,106,125][d.type],width,tilt,d.type === 3 ? 1.17 : 1,true);
   }
   // Reject objects outside the volume spanning the eye and all visible fighters
   // before testing individual sight lines against the object's triangles.
   const lo = [...scene.eye], hi = [...scene.eye];
-  for (const points of sightBodies) {
+  for (const {points} of sightBodies) {
     for (const point of points) {
       for (let axis = 0; axis < 3; axis++) {
         lo[axis] = Math.min(lo[axis], point[axis]);
@@ -1723,12 +1739,12 @@ function intersectsFace(face, dx, dy, dz, near, far) {
 }
 function coveredFraction(lo,hi,faces) {
   let mostCovered = 0;
-  for (const points of sightBodies) {
+  for (const {points,total,importance} of sightBodies) {
     let hits = 0;
     for (const point of points) {
-      if (surfaceOnRay(lo,hi,faces,point)) hits++;
+      if (surfaceOnRay(lo,hi,faces,point)) hits += point[3];
     }
-    mostCovered = Math.max(mostCovered,hits/points.length);
+    mostCovered = Math.max(mostCovered,importance*hits/total);
     if (mostCovered === 1) break;
   }
   return mostCovered;
@@ -2125,13 +2141,15 @@ function drawInteractives() {
     );
   }
 }
-function actors3d() {
+function drawForegroundProps() {
   scene.faces = [];
   drawWaterRings();
   drawFaces(scene.faces);
   scene.faces=[];
   drawInteractives();
   drawFaces(scene.faces);
+}
+function buildActorFaces() {
   scene.faces=[];
   shadows(run.pos, roadZ(run.depth), 29, 16);
   const first = scene.faces.length;
@@ -2212,7 +2230,7 @@ function actors3d() {
     label.lastChild.value = d.hp;
   }
   drawCombatFx();
-  drawFaces(scene.faces);
+  return scene.faces;
 }
 function edgeLight() {
   // A thin moonlit edge separates foreground silhouettes from distant surfaces.
@@ -2476,6 +2494,8 @@ function renderWorld() {
     backdropKey = "";
   }
   camera();
+  sightBodies.length = 0;
+  const actorFaces = buildActorFaces();
   const key = [
     ...scene.eye,
     view.cameraYaw,
@@ -2503,7 +2523,8 @@ function renderWorld() {
     backdrop[2].set(lights);
     backdropKey = key;
   }
-  actors3d();
+  drawForegroundProps();
+  drawFaces(actorFaces);
   advanceFades(started, rebuilt);
   edgeLight();
   paintPixels();

@@ -327,7 +327,7 @@ function warBlade(hand, tip) {
     true,
   );
 }
-function armoredModel(d, pose, boss, contact, bind, fall) {
+function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
   const breath =
     Math.sin(run.phase * 2 + d.home) * 0.7 +
     (d.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0) * 0.14;
@@ -404,6 +404,7 @@ function armoredModel(d, pose, boss, contact, bind, fall) {
       elbow[0] -= 9 * support; elbow[2] += s * 7 * support;
       tip[0] += dx + 18 * support; tip[1] += dy - 17 * support; tip[2] += dz;
     }
+    if (active && sampleAttack) sampleAttack(worldPoint(elbow),worldPoint(hand),worldPoint(tip));
     sculpt(
       [
         [surge, shoulder - 2, s * 16, 8],
