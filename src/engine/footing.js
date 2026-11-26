@@ -1,3 +1,4 @@
+import { rollDuration } from "./combat-timing.js";
 import { heroMotion } from "./valley.js";
 import { run, distanceTo, cut } from "./journey.js";
 import { roadZ } from "./world3d.js";
@@ -23,7 +24,7 @@ function advanceFeet(b, dt) {
   const actor = b.ref,
     hero = actor === heroMotion;
   if (!hero && (actor.type === undefined || actor.type === 1)) return;
-  if (hero && run.phase - run.dodgeAt < 0.26) {
+  if (hero && run.phase - run.rollAt < rollDuration) {
     actor.feet = null;
     return;
   }
@@ -67,7 +68,7 @@ function advanceFeet(b, dt) {
     };
   }
   Object.assign(rig, { angle, x: b.x, z: b.z, scale });
-  // A dash or contact correction can move the pelvis past a planted heel.
+  // A rolling or contact correction can move the pelvis past a planted heel.
   // Recover the stance immediately after a displacement larger than one stride.
   if (hero && Math.hypot(dx, dz) > 19) {
     rig.feet = homes.map(([x, z]) => ({ x, z, h: 0 }));

@@ -534,3 +534,8 @@ kbd {
 html.hide-game-cursor, html.hide-game-cursor * { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3C/svg%3E") 0 0, none !important; }
 
 #scene { -webkit-user-select: none; user-select: none; }
+
+#chargeHud {grid-column:1/-1;color:#eed3a0;font-size:12px}
+#charge {display:block;width:100%;margin-top:4px}
+#charge::-webkit-progress-value {background:#edbf70}
+#charge::-moz-progress-bar {background:#edbf70}

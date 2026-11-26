@@ -48,14 +48,15 @@
             value="100"
             max="100"
           ></progress
-          ><small class="breath-label">ДЫХАНИЕ</small
+          ><small class="breath-label">ВЫНОСЛИВОСТЬ</small
           ><progress
             id="spirit"
-            aria-label="Дыхание"
+            aria-label="Выносливость"
             value="100"
             max="100"
           ></progress
           ><small id="bladeState">Клинок в ножнах</small>
+          <label id="chargeHud" hidden>Заряд удара <progress id="charge" max="1" value="0"></progress></label>
         </div>
         <div class="compass">
           <span id="zone">СТАРЫЙ ТРАКТ</span> · <b id="bearing"></b>
@@ -103,9 +104,9 @@
         <div><kbd>WASD</kbd> Движение</div>
         <div>Мышь · свободный обзор</div>
         <div><kbd>Alt</kbd> Удерживать для курсора</div>
-        <div><kbd>ПКМ</kbd> Сильный удар сверху вниз</div>
-        <div><kbd>ЛКМ</kbd> Обычный удар</div>
-        <div><kbd>Shift</kbd> Рывок</div>
+        <div><kbd>ПКМ</kbd> Парирование</div>
+        <div><kbd>ЛКМ</kbd> Удар · удержать для сильного</div>
+        <div><kbd>Shift</kbd> Перекат</div>
         <div><kbd>F</kbd> Парирование</div>
         <div><kbd>V</kbd> Ножны</div>
         <div><kbd>E</kbd> Действие</div>
@@ -120,7 +121,7 @@
         </div>
         <button id="attack">Удар</button
         ><button id="sheathe">Меч / ножны</button
-        ><button id="dodge">Рывок</button><button id="parry">Парирование</button
+        ><button id="dodge">Перекат</button><button id="parry">Парирование</button
         ><button id="pick">Действие</button>
       </div>
     </main>

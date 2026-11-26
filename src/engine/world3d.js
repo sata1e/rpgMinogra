@@ -1,3 +1,4 @@
+import { rollDuration } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import {
   clamp01,
@@ -140,6 +141,7 @@ function place(x, z, rot = 0, scale = 1) {
   orientation = rot;
   scene.unit = scale;
 }
+let rollPose = null;
 let bodyTilt = null,
   torsoPose = null;
 function worldPoint([x, y, z]) {
@@ -163,6 +165,15 @@ function worldPoint([x, y, z]) {
       dz += nz * offset;
       height = Math.max(1, pivot + above * cos - along * sin);
     }
+  }
+  if (rollPose) {
+    const {x, y} = run.rollDir;
+    const forward = dx * x + dz * y;
+    const h = height - 43;
+    const shift = forward * (rollPose.cos - 1) + h * rollPose.sin;
+    dx += x * shift;
+    dz += y * shift;
+    height = Math.max(1, 43 + h * rollPose.cos - forward * rollPose.sin);
   }
   return [origin[0] + dx, height, origin[2] + dz];
 }
@@ -1074,7 +1085,7 @@ function ronin() {
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
     shift = p.shift,
-    slide = Math.sin(Math.PI * clamp01((run.phase - run.dodgeAt) / 0.26)),
+    slide = Math.sin(Math.PI * clamp01((run.phase - run.rollAt) / rollDuration)),
     drop = p.drop + slide * 8;
   const footLift =
     heroMotion.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0;
@@ -1093,8 +1104,8 @@ function ronin() {
       sign < 0 ? 0 : 1,
       humanFeet,
     );
-    foot = mix(foot, sign * 16, slide);
-    lift = mix(lift, sign < 0 ? 5 : 1, slide);
+    foot = mix(foot, sign * 6 + 7, slide);
+    lift = mix(lift, sign < 0 ? 19 : 13, slide);
     const ankle = foot - 1;
     const knee = bendJoint(
       [hip, 48 - drop, sign * 5.5 + p.lateral],
@@ -1709,7 +1720,13 @@ function actors3d() {
   shadows(run.pos, roadZ(run.depth), 29, 16);
   const first = scene.faces.length;
   bodyTilt = impactTilt(heroMotion, 30);
+  const roll = (run.phase - run.rollAt) / rollDuration;
+  if (roll >= 0 && roll < 1) {
+    const angle = Math.PI * 2 * ease(roll);
+    rollPose = {sin: Math.sin(angle), cos: Math.cos(angle)};
+  }
   ronin();
+  rollPose = null;
   bodyTilt = null;
   for (let i = first; i < scene.faces.length; i++) {
     const face = scene.faces[i];

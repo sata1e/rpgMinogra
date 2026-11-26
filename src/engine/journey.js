@@ -1,3 +1,4 @@
+import { rollDuration, rollCost, chargeDuration, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { W } from "./config.js";
 import { view, resetMouse } from "./game.js";
@@ -89,16 +90,17 @@ run.phase = 0;
 run.last = 0;
 let health = 100;
 run.attackAt = -10;
-run.dodgeAt = -10;
+run.rollAt = -10;
 let hurtAt = -10;
-let dodgeFace = 1;
+let riposteTarget = null;
+let parryUsed = false;
 let attackFace = 1;
 run.spent = false;
 run.depth = trackY;
 let depthVelocity = 0;
 run.heading = { x: 1, y: 0 };
 run.attackDir = { x: 1, y: 0 };
-let dashDir = { x: 1, y: 0 };
+run.rollDir = { x: 1, y: 0 };
 const depthRatio = 0.6;
 const species = [
   {
@@ -262,7 +264,7 @@ function toggleBlade() {
     run.phase - run.bladeChanged < 0.48 ||
     run.windAt !== null ||
     run.phase - run.attackAt < cut().duration ||
-    run.phase - Math.max(run.guardAt, run.dodgeAt, run.bladeChanged) < 0.48
+    run.phase - run.rollAt < rollDuration || run.phase - run.guardAt < parryTiming.recover
   )
     return;
   run.cleanAt = -10;
@@ -277,8 +279,8 @@ function drawSword() {
     run.phase - run.bladeChanged < 0.48 ||
     run.windAt !== null ||
     run.phase - run.attackAt < cut().duration ||
-    run.phase - run.dodgeAt < 0.26 ||
-    run.phase - run.guardAt < 0.24
+    run.phase - run.rollAt < rollDuration ||
+    run.phase - run.guardAt < parryTiming.recover && run.phase >= riposteUntil
   )
     return;
   run.windAt = run.phase;
@@ -293,12 +295,16 @@ function parry() {
     run.phase - run.bladeChanged < 0.48 ||
     run.phase - run.guardAt < 0.68 ||
     run.phase - run.attackAt < cut().end ||
-    run.phase - run.dodgeAt < 0.25 ||
+    run.phase - run.rollAt < rollDuration ||
     spirit < 9
   )
     return;
   run.cleanAt = -10;
   run.windAt = null;
+  run.attackAt = -10;
+  parryUsed = false;
+  run.bladeOut = true;
+  run.bladeChanged = -10;
   run.guardAt = run.phase;
   spirit -= 9;
   ping(390);
@@ -374,6 +380,8 @@ function ui() {
   setText("#act", "РЕГИОН " + (index + 1) + " / " + regions.length);
   setText("#zone", region.name.toUpperCase());
   $("#spirit").value = spirit;
+  $("#chargeHud").hidden = run.windAt === null;
+  if (run.windAt !== null) $("#charge").value = Math.min(1, (run.phase - run.windAt) / chargeDuration);
   setText("#count", String(guards.length - alive.length));
   setText("#total", String(guards.length));
   setText("#hp", health + " / 100");
@@ -404,7 +412,7 @@ function ui() {
     "#notice",
     run.phase < feedbackUntil
       ? feedback
-      : run.windAt !== null && run.phase - run.windAt >= 0.48
+      : run.windAt !== null && run.phase - run.windAt >= chargeDuration
         ? "Отпустите · сильный разрез"
         : bellHint(),
   );
@@ -419,11 +427,11 @@ function attack(requestedStyle) {
   const held = run.phase - run.windAt;
   run.windAt = null;
   if (run.paused) return;
-  const style = requestedStyle ?? (held >= 0.48 ? 1 : 0);
+  const style = requestedStyle ?? (held >= chargeDuration ? 1 : 0);
   const base = (run.bladeOut ? readyCuts : cuts)[style];
   const cost = Math.round(base.cost * weapon.tempo);
   if (spirit < cost) {
-    whisper("Дайте дыханию восстановиться");
+    whisper("Недостаточно выносливости");
     return;
   }
   activeCut = { ...base, cost, duration: base.duration * weapon.tempo,
@@ -456,21 +464,22 @@ function attack(requestedStyle) {
   run.spent = false;
   ping(style ? 165 : 225);
 }
-function dodge() {
+function roll() {
   if (
     run.paused ||
-    run.phase - run.dodgeAt < 0.84 ||
+    run.phase - run.rollAt < 0.84 ||
     run.phase - run.attackAt < cut().end ||
     run.phase - run.guardAt < 0.25 ||
-    spirit < 19
+    spirit < rollCost
   )
     return;
   run.windAt = null;
-  spirit -= 19;
-  run.dodgeAt = run.phase;
-  dodgeFace = face;
+  run.attackAt = -10;
+  spirit -= rollCost;
+  run.rollAt = run.phase;
+  run.cleanAt = -10;
   const travelIntent = movementInput();
-  dashDir =
+  run.rollDir =
     Math.hypot(travelIntent.x, travelIntent.y) > 0.1
       ? { ...travelIntent }
       : { ...run.heading };
@@ -482,6 +491,7 @@ function modal(open) {
   run.paused = open;
   keys.clear();
   $(".overlay").hidden = !open;
+  $("#chargeHud").hidden = true;
   $("#armory").hidden = !(starting || won || dead);
   document.dispatchEvent(new CustomEvent("game:pause", { detail: open }));
   setText(
@@ -537,7 +547,7 @@ function resume() {
     run.guardAt =
       riposteUntil =
       run.attackAt =
-      run.dodgeAt =
+      run.rollAt =
       hurtAt =
       motion.lastPick =
         -10;
@@ -619,9 +629,9 @@ function movementInput() {
 function update(dt) {
   expireCombatFx();
   const bodies = startMotion(dt);
-  if (run.phase - Math.max(run.attackAt, run.dodgeAt, run.guardAt) > 0.52)
+  if (run.phase - Math.max(run.attackAt, run.rollAt, run.guardAt) > rollDuration)
     spirit = Math.min(100, spirit + dt * difficulty.breath);
-  const dash = run.phase - run.dodgeAt < 0.26,
+  const rolling = run.phase - run.rollAt < rollDuration,
     swing = run.phase - run.attackAt < cut().end;
   const travel = movementInput();
   const norm = travel.x !== 0 || travel.y !== 0;
@@ -630,11 +640,11 @@ function update(dt) {
   if (attackAge < cut().duration) {
     const yaw = strikeStartYaw + strikeTurn * ease(attackAge / cut().start);
     run.heading = run.attackDir = { x: Math.cos(yaw), y: Math.sin(yaw) };
-  } else {
-    run.heading = combatFacing(norm && !dash ? travel : run.heading);
+  } else if (!rolling && run.phase - run.guardAt >= parryTiming.recover) {
+    run.heading = combatFacing(norm && !rolling ? travel : run.heading);
   }
   face = Math.sign(run.heading.x) || face;
-  const direction = dash ? dashDir : swing ? run.attackDir : travel;
+  const direction = rolling ? run.rollDir : swing ? run.attackDir : travel;
   const age = run.phase - run.attackAt;
   const push = swing
     ? Math.max(
@@ -645,8 +655,8 @@ function update(dt) {
         ),
       )
     : 0;
-  const speed = dash
-    ? 920 * (1 - ease((run.phase - run.dodgeAt) / 0.26))
+  const speed = rolling
+    ? 420 * Math.sin(Math.PI * (run.phase - run.rollAt) / rollDuration)
     : swing
       ? (push * cut().step * Math.PI) / (2 * (cut().end - cut().start))
       : run.windAt !== null
@@ -654,7 +664,7 @@ function update(dt) {
         : 196;
   const facingDot = direction.x * run.heading.x + direction.y * run.heading.y;
   const travelSpeed =
-    (run.opponent || view.mouseLook) && !dash && !swing
+    (run.opponent || view.mouseLook) && !rolling && !swing
       ? speed * (0.84 + 0.16 * facingDot)
       : speed;
   const vx = direction.x * travelSpeed,
@@ -665,8 +675,8 @@ function update(dt) {
     1,
     (rate * dt) / (Math.hypot(vx - velocity, vz - depthVelocity) || 1),
   );
-  velocity = dash ? vx : velocity + (vx - velocity) * fraction;
-  depthVelocity = dash ? vz : depthVelocity + (vz - depthVelocity) * fraction;
+  velocity = rolling ? vx : velocity + (vx - velocity) * fraction;
+  depthVelocity = rolling ? vz : depthVelocity + (vz - depthVelocity) * fraction;
   const drag = terrainSpeed(run.pos, roadZ(run.depth));
   const old = run.pos,
     oldY = run.depth;
@@ -696,7 +706,7 @@ function update(dt) {
     if (contact) {
       struck.add(d);
       if (run.combo === 1) run.spent = true;
-      const counter = run.phase < riposteUntil;
+      const counter = d === riposteTarget && run.phase < riposteUntil;
       const blocked =
         difficulty !== difficulties.easy &&
         d.type === 2 &&
@@ -712,7 +722,7 @@ function update(dt) {
         const damage = (counter ? 3 : cut().damage) * difficulty.outgoing;
         d.hp = Math.max(0, d.hp - damage);
         d.flash = run.phase;
-        riposteUntil = -10;
+        if (counter) riposteUntil = -10;
         // Compare the same point along the blade in adjacent sweep samples.
         const i = contact.i,
           t = contact.t;
@@ -763,10 +773,11 @@ function update(dt) {
           d.type === 1
             ? distanceTo(d.aimX, d.aimY) < 47
             : dist < traits.range + 20 && -dx * d.aimX - dy * d.aimY > -10;
-        const canParry =
+        const guardAge = run.phase - run.guardAt;
+        const canParry = !parryUsed && !rolling &&
           d.type !== 1 &&
-          run.phase - run.guardAt < 0.23 &&
-          dx * run.heading.x + dy * run.heading.y > -15;
+          guardAge >= parryTiming.open && guardAge <= parryTiming.close &&
+          dx * run.heading.x + dy * run.heading.y >= dist * 0.5;
         if (inStrike && canParry) {
           impactFx(
             null,
@@ -782,13 +793,16 @@ function update(dt) {
           d.chain = 0;
           d.exposed = run.phase + 1.1;
           d.ready = d.exposed;
-          spirit = Math.min(100, spirit + 23);
+          d.stunned = d.exposed;
+          riposteTarget = d;
+          parryUsed = true;
+          spirit = Math.min(100, spirit + 14);
           riposteUntil = run.phase + 0.88;
-          whisper("Парирование · ответьте катаной");
+          whisper("Парирование · ответьте ударом");
           ping(780);
           continue;
         }
-        if (inStrike && !dash && run.phase - hurtAt > 0.42) {
+        if (inStrike && !rolling && run.phase - hurtAt > 0.42) {
           impactFx(
             heroMotion,
             {
@@ -857,7 +871,7 @@ function update(dt) {
   motion.stride +=
     (Math.min(1, distance / (dt * 180)) - motion.stride) *
     (1 - Math.exp(-dt * 14));
-  if (!dash) motion.gait += (distance * Math.PI) / 48;
+  if (!rolling) motion.gait += (distance * Math.PI) / 48;
   settleRecoil(heroMotion, dt);
   for (const d of guards) {
     settleRecoil(d, dt);
@@ -883,7 +897,7 @@ export {
   modal,
   interact,
   parry,
-  dodge,
+  roll,
   ping,
   drawSword,
   attack,

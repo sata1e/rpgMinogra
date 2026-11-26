@@ -1,3 +1,4 @@
+import { parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
 import { cut, run, depthRatio } from "./journey.js";
 import { impactTilt, roadZ } from "./world3d.js";
@@ -29,7 +30,7 @@ function katanaPose(age) {
   const move = cut(),
     midCut = age >= 0 && age < move.duration;
   const parryAge = run.phase - run.guardAt,
-    blocking = parryAge >= 0 && parryAge < 0.32 && !midCut;
+    blocking = parryAge >= 0 && parryAge < parryTiming.recover && !midCut;
   const transition = clamp01((run.phase - run.bladeChanged) / 0.48);
   const carry = run.bladeOut ? transition : 1 - transition;
   const readyHand = [19, 2, 57],
@@ -122,8 +123,10 @@ function katanaPose(age) {
     for (let i = 0; i < 3; i++)
       mouth[i] -= axis[i] * (weapon.length - 25) * exposed * (1 - ready) * wind;
   } else if (blocking) {
-    const guard = Math.sin((Math.PI * parryAge) / 0.32);
-    hand = blend3(hand, [21, 3, 73], guard);
+    const guard = ease(parryAge / parryTiming.open) * (1 - ease((parryAge - parryTiming.close) / (parryTiming.recover - parryTiming.close)));
+    coil = -0.32 * guard;
+    drop = 3 * guard;
+    hand = blend3(hand, [20, -7, 70], guard);
     exposed = Math.max(exposed, guard);
     reach = Math.max(reach, guard);
     yaw = mix(yaw, -0.9, guard);

@@ -7,7 +7,7 @@ import {
   modal,
   interact,
   parry,
-  dodge,
+  roll,
   ping,
   drawSword,
   attack,
@@ -80,7 +80,7 @@ function bindControls() {
   $("#resume").onclick = resumeGame;
   $("#pick").onclick = interact;
   $("#parry").onclick = parry;
-  $("#dodge").onclick = dodge;
+  $("#dodge").onclick = roll;
   $("#sound").onclick = () => {
     run.audio ??= new AudioContext();
     run.audio.resume();
@@ -96,14 +96,17 @@ function bindControls() {
   canvas.oncontextmenu = (e) => e.preventDefault();
   canvas.onauxclick = (e) => e.preventDefault();
   canvas.onmousedown = (e) => {
-    if (run.paused || heldAlts.size || (e.button !== 0 && e.button !== 2) || run.windAt !== null) return;
+    if (run.paused || heldAlts.size || (e.button !== 0 && e.button !== 2)) return;
     e.preventDefault();
     view.mouseLook = true;
     desktopLook = true;
     if (document.pointerLockElement !== canvas) { startMouseLook(); return; }
-    drawSword();
-    attack(e.button === 2 ? 1 : 0);
+    if (e.button === 2) parry();
+    else drawSword();
   };
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 0 && !run.paused && !heldAlts.size && document.pointerLockElement === canvas) attack();
+  });
   function orbit(dx, dy) {
     view.cameraYaw -= dx * 0.0045;
     view.cameraPitch = Math.max(
@@ -167,6 +170,7 @@ function bindControls() {
   window.onkeydown = (e) => {
     if (!run.paused && (e.code === "AltLeft" || e.code === "AltRight")) {
       e.preventDefault();
+      run.windAt = null;
       heldAlts.add(e.code);
       syncCursor();
       releaseMouse();
@@ -201,7 +205,7 @@ function bindControls() {
     if (e.code === "KeyE" && !e.repeat) interact();
     else if (e.code === "KeyV" && !e.repeat) toggleBlade();
     else if (e.code === "KeyF" && !e.repeat) parry();
-    else if (e.code.startsWith("Shift") && !e.repeat) dodge();
+    else if (e.code.startsWith("Shift") && !e.repeat) roll();
     else keys.add(e.code);
   };
   window.onkeyup = (e) => {
