@@ -234,6 +234,14 @@ let strikeStartYaw = 0;
 let strikeTurn = 0;
 const struck = new Set();
 run.opponent = null;
+function pursuingRonin(d) {
+  return distanceTo(d.home, d.homeY) < 350;
+}
+export function combatOpponent(d) {
+  if (!d.hp || run.fall || distanceTo(d.x,d.y) > 350) return false;
+  return d.wind >= 0 || run.phase - Math.max(d.flash, d.struckAt ?? -10) < 2 ||
+    pursuingRonin(d) || d === run.opponent;
+}
 function combatFacing(fallback) {
   if (view.mouseLook) {
     run.opponent = null;
@@ -1062,7 +1070,7 @@ function update(dt) {
       d.aimX = d.type === 1 ? run.pos : -dx / (dist || 1);
       d.aimY = d.type === 1 ? run.depth : -dy / (dist || 1);
     } else if (run.phase - d.flash > 0.22) {
-      const chase = distanceTo(d.home, d.homeY) < 350;
+      const chase = pursuingRonin(d);
       let tx = chase ? run.pos : d.home - 50 + Math.sin(run.phase * 0.8) * 26,
         ty = chase ? run.depth : d.homeY;
       if (chase && dist < traits.range * 0.84) continue;
