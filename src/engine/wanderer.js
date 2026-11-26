@@ -1,4 +1,4 @@
-import { loweredHeight } from "./demon-fall.js";
+import { loweredHeight, impactDrop } from "./demon-fall.js";
 import { chargeDuration, parryTiming, riposteWindow } from "./combat-timing.js";
 import { groundHeight } from "./valley.js";
 import { weapon } from "./weapons.js";
@@ -81,19 +81,29 @@ function katanaPose(age) {
 function overheadFinishPose(age,move) {
   const p = move.link.pose;
   const {entry,start,end,duration} = move;
+  const impact = move.impact;
+  if (impact && age >= impact.sampleAge) {
+    const resume = impact.at+.07;
+    // Hold the sampled contact frame. Rejoin the original clock by recovery.
+    const finish = end+.17;
+    const progress = clamp01((age-resume)/(finish-resume));
+    if (age < finish) age = mix(impact.sampleAge,finish,progress*progress*(2-progress));
+  }
+  const overrun = impact ? 0 : ease((age-end)/.11)*(1-ease((age-end-.11)/.23));
   const drive = ease(age/end);
   const edge = ease((age-start*.4)/(end-start*.4));
   const plant = ease((age-entry.landAt*.6)/(end-entry.landAt*.6));
   const settle = ease((age-end)/(duration-end));
-  const shift = mix(mix(p.shift,9,drive),0,settle);
+  const shift = mix(mix(p.shift,9,drive),0,settle)+5*overrun;
   const lateral = mix(mix(p.lateral,entry.leadSide*4.5,plant),0,settle);
-  const drop = mix(mix(p.drop,8+4*move.lowAim,plant),0,settle);
+  const drop = mix(mix(p.drop,8+4*move.lowAim,plant),0,settle)+3*overrun;
   const hand = blend3(p.tsuba,[29,0,49-12*move.lowAim],drive);
-  hand[0] += 10*Math.sin(Math.PI*drive);
+  hand[0] += 10*Math.sin(Math.PI*drive)+5*overrun;
+  hand[2] -= 4*overrun;
   return {...p, heldAttack:false, supportGrip:1, sheathHold:0, carryReady:settle,
     tsuba:blend3(hand,[19,2,57],settle), mouth:[9+.82*shift,-14+lateral,51-drop],
     yaw:mix(mix(p.yaw,0,ease(age/start)),.16,settle),
-    pitch:mix(mix(p.pitch,-.59-.25*move.lowAim,edge),.67,settle),
+    pitch:mix(mix(p.pitch,-.59-.25*move.lowAim,edge),.67,settle)-.18*overrun,
     shift,lateral,drop, coil:mix(p.coil,0,drive), shrug:p.shrug*(1-drive),
     load:mix(p.load,1,drive)*(1-settle), turn:edge*(1-settle)};
 }
@@ -456,6 +466,7 @@ function swordContact(edges, d) {
           [0.76, 1.12, 0],
           [0.92, 0.75, 2],
         ];
+  const sink = d.type === 0 ? 0 : impactDrop(d,run.phase)*(d.type===3 ? 1.17 : 1);
   let earliest = null;
   for (const [level, size, forward, centerHeight] of zones) {
     const limb = level < 0.25 && d.type !== 1;
@@ -464,6 +475,7 @@ function swordContact(edges, d) {
       let x = forward * Math.cos(facing) - lateral * Math.sin(facing),
         y = forward * Math.sin(facing) + lateral * Math.cos(facing),
         z = centerHeight ?? height * level;
+      z -= sink*Math.min(1,level/.45);
       if (tilt?.fall) z = loweredHeight(z, tilt.fall, d.type === 3 ? 1.17 : 1);
       if (tilt && z > tilt.pivot) {
         const h = z - tilt.pivot,

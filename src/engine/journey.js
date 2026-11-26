@@ -85,6 +85,7 @@ let face = 1;
 let velocity = 0;
 run.paused = false;
 let won = false;
+let victoryAt = Infinity;
 let dead = false;
 run.fall = null;
 run.sound = false;
@@ -701,6 +702,7 @@ function resetRun() {
   feedbackUntil = 0;
   run.spent = true;
   won = dead = false;
+  victoryAt = Infinity;
   run.fall = null;
   run.deflectedAt = -10;
   riposteTarget = null;
@@ -888,7 +890,6 @@ function update(dt) {
   run.depth = run.depth + depthVelocity * dt * depthRatio * drag;
   if ((run.pos === 20 && velocity < 0) || (run.pos === W - 20 && velocity > 0))
     velocity = 0;
-  sampleBladeTrace(age);
   const sweep = bladeSweep(
     run.phase - run.attackAt,
     dt,
@@ -910,6 +911,12 @@ function update(dt) {
       }
     }
   }
+  if (firstContact && cut().link?.overheadFinish) {
+    const sampleAge = Math.max(cut().start,age-dt) + Math.floor(firstContact.i/2)*sweep.sampleTime;
+    cut().impact = {sampleAge, at:age};
+    firstTarget.heavyImpactAt = run.phase;
+  }
+  sampleBladeTrace(age);
   for (const d of guards) {
     if (!d.hp || !activeGuard(d)) continue;
     const traits = enemies[d.kind],
@@ -972,8 +979,7 @@ function update(dt) {
           health = Math.min(100, health + difficulty.heal);
           run.cleanAt = run.attackAt + cut().duration;
           if (guards.every((enemy) => !enemy.hp)) {
-            won = true;
-            modal(true);
+            victoryAt = run.phase + (cut().link?.overheadFinish ? .32 : 0);
           }
           continue;
         }
@@ -1101,6 +1107,11 @@ function update(dt) {
       d.x += (step * vx) / length;
       d.y += ((step * vy) / length) * depthRatio;
     }
+  }
+  if (run.phase >= victoryAt) {
+    victoryAt = Infinity;
+    won = true;
+    modal(true);
   }
   resolveContacts(bodies, dt);
   const distance = Math.hypot(run.pos - old, (run.depth - oldY) / depthRatio);

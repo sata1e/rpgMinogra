@@ -1,6 +1,12 @@
 // Each key stores time, torso angle, hip drop, knee fold, foot spread and arm support.
 // Recovery has its own keys: pull the feet under the hips before extending the legs.
 const upright = [0, 0, 0, 0, 0, 0];
+export function impactDrop(actor, now) {
+  const age = now - (actor.heavyImpactAt ?? -1);
+  if (age < 0 || age >= .32) return 0;
+  const t = age < .075 ? age/.075 : 1-(age-.075)/.245;
+  return [8,7,13,10][actor.type]*t*t*(3-2*t);
+}
 const knightDown = [
   upright, [.23, .12, 8, .55, -.35, .3], [.62, .64, 24, 1, .35, .9],
   [.89, 1.37, 22, .63, 1, .64], [1, 1.31, 21, .62, .95, .48],

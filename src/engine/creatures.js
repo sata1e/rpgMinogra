@@ -12,6 +12,7 @@ import {
 } from "./world3d.js";
 import { run } from "./journey.js";
 import { weaponArm } from "./enemy-attacks.js";
+import { impactDrop } from "./demon-fall.js";
 import { localFoot, houndFeet, knightFeet } from "./footing.js";
 
 // Elliptical sections perpendicular to a centreline let a limb bend continuously
@@ -227,7 +228,7 @@ function houndModel(d, load, snap, fall, sampleLunge) {
   }
 }
 function mournerModel(d, load, fall) {
-  const y = 14 + Math.sin(run.phase * 2.2 + d.home) * 3 - 8 * (fall?.fold ?? 0);
+  const y = 14 + Math.sin(run.phase * 2.2 + d.home) * 3 - 8 * (fall?.fold ?? 0) - impactDrop(d,run.phase);
   // Overlapping cloth gores open and close independently along the ragged hem.
   for (let i = 0; i < 16; i++) {
     const a = (i * Math.PI) / 8,
@@ -334,8 +335,9 @@ function warBlade(hand, tip) {
   );
 }
 function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
+  const sink = impactDrop(d,run.phase);
   const breath =
-    Math.sin(run.phase * 2 + d.home) * 0.7 +
+    Math.sin(run.phase * 2 + d.home) * 0.7 - sink +
     (d.feet?.feet.reduce((h, f) => Math.max(h, f.h), 0) ?? 0) * 0.14;
   const load = pose.lift * (1 - pose.strike);
   const surge = (-5 * load + 7 * pose.strike) * (1 - pose.recover),
@@ -345,14 +347,14 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
   for (const s of [-1, 1]) {
     let [heel, lift, z] = fallingFoot(d, s < 0 ? 0 : 1, knightFeet, fall);
     const lead = s === fall?.side;
-    const knee = (fall?.fold ?? 0) * (lead ? 18 : 12);
+    const knee = (fall?.fold ?? 0) * (lead ? 18 : 12) + sink*.7;
     if (fall) {
       heel += (lead ? 12 : -16) * fall.spread;
       z += s * (lead ? 7 : 4) * fall.spread;
     }
     sculpt(
       [
-        [s * 2, 45, s * 8, 7.2],
+        [s * 2, 45-sink, s * 8, 7.2],
         [heel + 4 + knee, 29, (z + s * 10) / 2, 6.4],
         [heel + 4 + knee, 24, (z + s * 10) / 2, 5.5],
         [heel, 9 + lift, z, 3.4],
@@ -373,9 +375,9 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
   }
   hull(
     [
-      [-3, 28, 0, 16, 20],
-      [-1, 45, 0, 13, 16],
-      [0, 54, 0, 11, 13],
+      [-3, 28-sink, 0, 16, 20],
+      [-1, 45-sink, 0, 13, 16],
+      [0, 54-sink, 0, 11, 13],
       [1, 68 + breath, 0, 15, 20],
       [surge, shoulder, 0, 12, 22],
       [surge, shoulder + 3, 0, 8, 10],
@@ -401,7 +403,7 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
     const active = s === (boss && pose.reverse ? -1 : 1);
     const { hand, elbow, tip } = active
       ? weaponArm(s, pose, boss, breath, contact, bind)
-      : {hand: [17, 54 + breath, s*22], elbow: [4,60,s*26], tip: [51,94+breath,s*25]};
+      : {hand: [17, 54 + breath, s*22], elbow: [4,60-sink,s*26], tip: [51,94+breath,s*25]};
     if (fall && (s === 1 || boss)) {
       const support = fall.brace * (s === fall.side ? 1 : .72);
       const dx = (12 - hand[0]) * support, dy = (49 - hand[1]) * support;
@@ -462,15 +464,16 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
         [16, 48, -13],
         [16, 68, -12],
       ];
+      for (const p of outline) p[1] -= sink;
       for (let i = 0; i < outline.length; i++) {
         panel(
-          [outline[i], outline[(i + 1) % outline.length], [29, 57, -24]],
+          [outline[i], outline[(i + 1) % outline.length], [29, 57-sink, -24]],
           14,
           true,
         );
         rod(outline[i], outline[(i + 1) % outline.length], 1.5, 2, true);
       }
-      ovalMesh(28, 57, -24, 3, 6, 4, 5);
+      ovalMesh(28, 57-sink, -24, 3, 6, 4, 5);
     }
   }
   const headY = shoulder + 12;

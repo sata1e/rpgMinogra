@@ -1,4 +1,4 @@
-import { knockdownPose, loweredHeight } from "./demon-fall.js";
+import { knockdownPose, loweredHeight, impactDrop } from "./demon-fall.js";
 import { fallPose } from "./death.js";
 import { attackPhases } from "./enemy-attacks.js";
 import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
@@ -1501,7 +1501,7 @@ export function demonAttackPose(d) {
   return {winding, lift, strike, recover, load, snap: strike * (1 - recover)};
 }
 export function houndBackHeight(d, load, snap) {
-  return 32 + Math.sin(run.phase * 3 + d.home) * .65 - load * 10 + snap * 4;
+  return 32 + Math.sin(run.phase * 3 + d.home) * .65 - load * 10 + snap * 4 - impactDrop(d,run.phase);
 }
 function demon(d) {
   const fall = bodyTilt?.fall;
