@@ -1,7 +1,8 @@
 import { loweredHeight } from "./demon-fall.js";
 import { parryTiming, riposteWindow } from "./combat-timing.js";
+import { groundHeight } from "./valley.js";
 import { weapon } from "./weapons.js";
-import { cut, run, depthRatio } from "./journey.js";
+import { cut, run, depthRatio, trackY } from "./journey.js";
 import { impactTilt, demonFacing, demonAttackPose, houndBackHeight } from "./world3d.js";
 const motion = {};
 motion.gait = 0;
@@ -293,6 +294,7 @@ function swordContact(edges, d) {
   const height = [54, 100, 108, 127][d.type],
     width = [16, 13, 17, 21][d.type];
   const tilt = impactTilt(d, d.type === 0 ? 12 : 24);
+  const elevation = groundHeight(d.x,(d.y-trackY)/depthRatio) - groundHeight(run.pos,(run.depth-trackY)/depthRatio);
   const facing = demonFacing(d);
   let back = 32, chest = 0;
   if (d.type === 0) {
@@ -332,6 +334,7 @@ function swordContact(edges, d) {
         y += tilt.nz * off;
         z = Math.max(1, tilt.pivot + h * tilt.cos - along * tilt.sin);
       }
+      z += elevation;
       x += d.x;
       y += d.y / depthRatio;
       for (let i = 0; i < edges.length && (!earliest || i <= earliest.i); i++) {

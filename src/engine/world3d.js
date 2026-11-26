@@ -17,6 +17,7 @@ import {
   buildings,
   bells,
   groundKind,
+  groundHeight,
   borderZ,
   trails,
   ponds,
@@ -139,8 +140,8 @@ scene.faces = [];
 let origin = [0, 0, 0];
 let orientation = 0;
 scene.unit = 1;
-function place(x, z, rot = 0, scale = 1) {
-  origin = [x, 0, z];
+function place(x, z, rot = 0, scale = 1, base = groundHeight(x,z)) {
+  origin = [x, base, z];
   orientation = rot;
   scene.unit = scale;
 }
@@ -189,12 +190,12 @@ function worldPoint([x, y, z]) {
     dx += x * shift;
     dz += y * shift;
     height = 36 + h * groundPose.cos - forward * groundPose.sin;
-    const vertex = [origin[0] + dx, height, origin[2] + dz];
+    const vertex = [origin[0] + dx, origin[1] + height, origin[2] + dz];
     groundPose.vertices.push(vertex);
     if (groundPose.bodyContact) groundPose.lowest = Math.min(groundPose.lowest, height);
     return vertex;
   }
-  return [origin[0] + dx, height, origin[2] + dz];
+  return [origin[0] + dx, origin[1] + height, origin[2] + dz];
 }
 function triangle(a, b, c, m, detail = false, glow = 0) {
   const ux = b[0] - a[0],
@@ -810,6 +811,27 @@ function buildScenery() {
       );
     }
   }
+  // Loose stones sit partly in the soil on the shoulders of each trail.
+  for (const trail of trails) {
+    for (let i = 1; i < trail.length; i++) {
+      const [ax, az] = trail[i-1], [bx, bz] = trail[i];
+      const length = Math.hypot(bx-ax, bz-az);
+      for (let t = 70; t < length; t += 170) {
+        const offset = (noise3() < .5 ? -1 : 1) * (23 + noise3()*36);
+        const x = ax + ((bx-ax)*t - (bz-az)*offset)/length;
+        const z = az + ((bz-az)*t + (bx-ax)*offset)/length;
+        if (bankDistance(x,z) > -20) continue;
+        model(x,z,()=>{
+          for (let j = 0; j < 4; j++) {
+            const dx = noise3()*38-19, dz = noise3()*29-14, r = 2+noise3()*5;
+            const base = groundHeight(x+dx,z+dz)-origin[1];
+            hull([[dx,base-1,dz,r,r*.73],[dx+1,base+r*.48,dz,r*.79,r*.61],
+              [dx+1.6,base+r*.73,dz-1,r*.32,r*.28]], j%3===0 ? 14 : 1, 5);
+          }
+        },35);
+      }
+    }
+  }
   // Deadfall in the forest, balanced stone stacks in the gardens, and driftwood at the lakes.
   for (let x = 330; x < W; x += 230) {
     const z = (noise3() - 0.5) * borderZ * 1.65;
@@ -1124,6 +1146,14 @@ function ronin() {
     }
     p.mouth[2] -= 25 * tuck;
   }
+  const feet = heroMotion.feet?.feet;
+  if (feet && !groundPose && age >= cut().duration && run.phase-run.guardAt > .5 && run.windAt === null) {
+    const transfer = (feet[0].h-feet[1].h) * motion.stride;
+    p.lateral += transfer * .33;
+    p.coil += transfer * .014;
+    p.drop += 1.8 * motion.stride - Math.abs(transfer) * .18;
+    p.tsuba = [p.tsuba[0]-transfer*.28, p.tsuba[1]+transfer*.15,p.tsuba[2]-p.drop];
+  }
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
     shift = p.shift,
@@ -1354,7 +1384,7 @@ function impactTilt(actor, pivot) {
 }
 // Undo the enemy's own render transform so both weapons use the same world-space contact.
 function enemyLocalPoint(point, scale) {
-  let x = point[0] - origin[0], h = point[1], z = point[2] - origin[2];
+  let x = point[0] - origin[0], h = point[1] - origin[1], z = point[2] - origin[2];
   if (bodyTilt && h > bodyTilt.pivot) {
     const {nx, nz, sin, cos, pivot} = bodyTilt;
     const along = x * nx + z * nz, above = h - pivot;
@@ -1462,6 +1492,7 @@ function camera() {
         roadZ(run.depth) + right[2] * 22 - cy * 38,
       ]
     : [run.pos + right[0] * 57, 59, roadZ(run.depth) + right[2] * 57];
+  focus[1] += groundHeight(run.pos,roadZ(run.depth));
   scene.eye = focus.map((v, i) => v - forward[i] * view.cameraRange);
   aspectY = rows * 1.04;
   aspectX = aspectY;
@@ -1475,6 +1506,20 @@ function project(v, out = [0, 0, 0]) {
   out[1] = rows * 0.5 - (aspectY * (x * up[0] + y * up[1] + z * up[2])) / d;
   out[2] = 1 / d;
   return out;
+}
+// Screen-door transparency keeps the silhouette legible in the indexed pixel renderer.
+const screenDoor = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+let sceneryPass = false;
+const sight = {};
+function updateSight() {
+  const z=roadZ(run.depth), floor=groundHeight(run.pos,z);
+  const foot=project([run.pos,floor,z]), head=project([run.pos,floor+102,z]);
+  sight.x=(head[0]+foot[0])*.5;
+  sight.y=(head[1]+foot[1])*.5;
+  const scale=aspectY*Math.max(head[2],foot[2]);
+  sight.rx=Math.max(1,scale*(run.fall || run.phase-run.rollAt<rollDuration ? 83 : 55));
+  sight.ry=Math.max(1,scale*83);
+  sight.depth=Math.min(head[2],foot[2]);
 }
 function raster(a, b, c, m, l, f) {
   const minX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))),
@@ -1493,7 +1538,10 @@ function raster(a, b, c, m, l, f) {
   const inv = 1 / den,
     du = cy * inv,
     dv = -by * inv;
+  const fade = sceneryPass && !mirrorPass && Math.max(a[2],b[2],c[2]) > sight.depth &&
+    maxX>sight.x-sight.rx && minX<sight.x+sight.rx && maxY>sight.y-sight.ry && minY<sight.y+sight.ry;
   for (let y = minY; y <= maxY; y++) {
+    const sy=fade ? ((y-sight.y)/sight.ry)**2 : 0;
     let u = ((minX + 0.5 - ax) * cy - (y + 0.5 - ay) * cx) * inv,
       v = ((y + 0.5 - ay) * bx - (minX + 0.5 - ax) * by) * inv;
     for (let x = minX; x <= maxX; x++, u += du, v += dv) {
@@ -1501,6 +1549,11 @@ function raster(a, b, c, m, l, f) {
       const z = a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]),
         i = y * cols + x;
       if (z <= depths[i]) continue;
+      if (fade && z > sight.depth) {
+        const radius = sy + ((x-sight.x)/sight.rx)**2;
+        const opacity = Math.max(2, (radius-.54)*30+2);
+        if (screenDoor[(x&3)+4*(y&3)] >= opacity) continue;
+      }
       depths[i] = z;
       materials[i] = m;
       lights[i] = l;
@@ -1630,7 +1683,7 @@ function drawScenery() {
 let waterVisible = false;
 function landscape() {
   waterVisible = false;
-  // Intersect camera rays with the road plane. Its texture stays fixed in world space.
+  // Start each ray at the water plane and refine its intersection with the terrain.
   depths.fill(0);
   fine.fill(0);
   for (let y = 0; y < rows; y++) {
@@ -1677,9 +1730,18 @@ function landscape() {
         }
         continue;
       }
-      const wx = scene.eye[0] + rx * t,
-        wz = scene.eye[2] + rz * t,
-        row = Math.floor(wz / 15);
+      let wx = scene.eye[0] + rx * t, wz = scene.eye[2] + rz * t;
+      // Refine the ray-plane intersection against the low relief near the camera.
+      let depth = t;
+      if (t < 1300) {
+        depth = t + groundHeight(wx,wz) / ry;
+        wx = scene.eye[0] + rx * depth;
+        wz = scene.eye[2] + rz * depth;
+        depth = t + groundHeight(wx,wz) / ry;
+        wx = scene.eye[0] + rx * depth;
+        wz = scene.eye[2] + rz * depth;
+      }
+      const row = Math.floor(wz / 15);
       const brick = Math.floor((wx + (row & 1) * 14) / 31);
       const grit = Math.abs((Math.imul(brick, 71) ^ Math.imul(row, 31)) % 7);
       const kind = groundKind(wx, wz),
@@ -1723,7 +1785,11 @@ function landscape() {
         }
       }
       if (t > 1100 && bank < 0) lights[i] = 1;
-      depths[i] = 1 / t;
+      if (depth < 650 && bank < -12) {
+        const slope = groundHeight(wx-9,wz-8) - (scene.eye[1]+depth*ry);
+        lights[i] = Math.max(0,Math.min(7,lights[i]+Math.round(slope*.9)));
+      }
+      depths[i] = 1 / depth;
     }
   }
 }
@@ -1732,7 +1798,8 @@ function shadows(x, z, rx, rz) {
   const rim = [];
   for (let i = 0; i < 12; i++) {
     const a = (i * Math.PI) / 6;
-    rim.push([Math.cos(a) * rx - 5, 0.65, Math.sin(a) * rz + 8]);
+    const dx=Math.cos(a)*rx-5, dz=Math.sin(a)*rz+8;
+    rim.push([dx, groundHeight(x+dx,z+dz)-origin[1]+1, dz]);
   }
   panel(rim, 0, true, -5);
 }
@@ -1821,6 +1888,10 @@ function actors3d() {
   scene.faces = [];
   drawWaterRings();
   drawInteractives();
+  sceneryPass=true;
+  drawFaces(scene.faces);
+  sceneryPass=false;
+  scene.faces=[];
   shadows(run.pos, roadZ(run.depth), 29, 16);
   const first = scene.faces.length;
   bodyTilt = impactTilt(heroMotion, 30);
@@ -1878,7 +1949,7 @@ function actors3d() {
     bodyTilt = null;
     drawWounds(d, surfaceStart);
     if (!d.hp) continue;
-    const p = project([d.x, [64, 118, 131, 155][d.type], roadZ(d.y)]);
+    const p = project([d.x, groundHeight(d.x,roadZ(d.y)) + [64, 118, 131, 155][d.type], roadZ(d.y)]);
     if (
       p[2] <= 0 ||
       p[0] < 0 ||
@@ -2000,7 +2071,7 @@ function waterPixel(x, y, wx, wz, rx, ry, rz, depthBand, fog, grainValue) {
   );
 }
 function drawWaterRings() {
-  place(0, 0);
+  place(0, 0, 0, 1, 0);
   for (const ring of waterRings) {
     const age = run.phase - ring.at,
       r = 7 + age * 48;
@@ -2152,11 +2223,12 @@ function renderWorld() {
     backdropKey = "";
   }
   camera();
+  updateSight();
   const key = [
     ...scene.eye,
     view.cameraYaw,
     view.cameraPitch,
-    view.cameraRange,
+    view.cameraRange, sight.rx,
   ].join("/");
   if (key === backdropKey) {
     depths.set(backdrop[0]);
@@ -2165,7 +2237,9 @@ function renderWorld() {
     fine.fill(0);
   } else {
     landscape();
+    sceneryPass=true;
     drawScenery();
+    sceneryPass=false;
     if (waterVisible) renderReflection();
     backdrop[0].set(depths);
     backdrop[1].set(materials);

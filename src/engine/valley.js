@@ -249,6 +249,30 @@ function groundKind(x, z) {
     Math.floor((z + borderZ) / gridStep) * gridW + Math.floor(x / gridStep)
   ];
 }
+// A fixed height field keeps the renderer, planted feet and scenery on the same ground.
+const reliefStep = 24, reliefWidth = Math.ceil(W / reliefStep) + 1;
+const reliefRows = Math.ceil(2 * borderZ / reliefStep) + 1;
+const relief = new Float32Array(reliefWidth * reliefRows);
+for (let j = 0; j < reliefRows; j++) {
+  for (let i = 0; i < reliefWidth; i++) {
+    const x = i * reliefStep, z = j * reliefStep - borderZ;
+    const shore = shoreField[Math.min(gridH-1, Math.floor(j * reliefStep / gridStep)) * gridW +
+      Math.min(gridW-1, Math.floor(x / gridStep))];
+    const rough = groundKind(x,z) === 1 ? .42 : 1;
+    const bank = Math.max(0, Math.min(1, (-shore - 28) / 54));
+    relief[j * reliefWidth + i] = bank * (3 + 2 * Math.sin(x*.017 + z*.011) +
+      rough * (3 + 2.1*Math.cos(z*.032 - x*.009) + 1.5*Math.sin(i*2.7 + j*1.9)));
+  }
+}
+export function groundHeight(x,z) {
+  const gx=x/reliefStep, gz=(z+borderZ)/reliefStep;
+  const i=Math.floor(gx), j=Math.floor(gz);
+  if(i<0 || j<0 || i+1>=reliefWidth || j+1>=reliefRows) return 0;
+  const k=j*reliefWidth+i, u=gx-i, v=gz-j;
+  const a=relief[k]+(relief[k+1]-relief[k])*u;
+  const b=relief[k+reliefWidth]+(relief[k+reliefWidth+1]-relief[k+reliefWidth])*u;
+  return a+(b-a)*v;
+}
 // All contact distances are in world units, including the depth axis.
 const bodySizes = [
   [27, 0.9],

@@ -735,7 +735,7 @@ function update(dt) {
       ? (push * cut().step * Math.PI) / (2 * (cut().end - cut().start))
       : run.windAt !== null
         ? 72
-        : 196;
+        : 88;
   const facingDot = direction.x * run.heading.x + direction.y * run.heading.y;
   const travelSpeed =
     (run.opponent || view.mouseLook) && !rolling && !swing
@@ -973,7 +973,7 @@ function update(dt) {
   resolveContacts(bodies, dt);
   const distance = Math.hypot(run.pos - old, (run.depth - oldY) / depthRatio);
   motion.stride +=
-    (Math.min(1, distance / (dt * 180)) - motion.stride) *
+    (Math.min(1, distance / (dt * 88)) - motion.stride) *
     (1 - Math.exp(-dt * 14));
   if (!rolling) motion.gait += (distance * Math.PI) / 48;
   settleRecoil(heroMotion, dt);

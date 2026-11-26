@@ -1,5 +1,5 @@
 import { rollDuration } from "./combat-timing.js";
-import { heroMotion } from "./valley.js";
+import { groundHeight, groundKind, heroMotion } from "./valley.js";
 import { run, distanceTo, cut } from "./journey.js";
 import { roadZ } from "./world3d.js";
 import { ease, mix } from "./wanderer.js";
@@ -92,7 +92,8 @@ function advanceFeet(b, dt) {
       );
       rig.group = errors[0] > errors[1] ? 0 : 1;
     } else rig.group = 1 - rig.group;
-    rig.duration = Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
+    const surface = groundKind(b.x, b.z);
+    rig.duration = hero && !braced ? [0.31, 0.285, 0.39][surface] : Math.max(0.075, Math.min(0.21, 25 / (speed + 55)));
     rig.time = 0;
     rig.feet.forEach((f, i) => {
       if (pattern[i][2] !== rig.group) return;
@@ -100,7 +101,7 @@ function advanceFeet(b, dt) {
         !hero && run.phase - (actor.balanceAt ?? -10) < 0.35 ? 1.9 : 1;
       const predict = Math.min(
         rig.duration * (hero ? 1 : 1.3) * catchStep,
-        ((hero ? 18 : 30) * catchStep) / Math.max(1, speed),
+        ((hero ? 16 : 30) * catchStep) / Math.max(1, speed),
       );
       Object.assign(f, {
         fromX: f.x,
@@ -121,8 +122,32 @@ function advanceFeet(b, dt) {
       t === 1
         ? 0
         : Math.sin(t * Math.PI) *
-          Math.min(10, Math.hypot(f.toX - f.fromX, f.toZ - f.fromZ) * 0.24);
+          Math.min(hero ? [8, 6, 12][groundKind(f.toX,f.toZ)] : 10, Math.hypot(f.toX - f.fromX, f.toZ - f.fromZ) * 0.24);
+    if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
+
   });
+}
+let stepNoise;
+function soundStep(surface) {
+  const audio = run.audio;
+  if (!run.sound || !audio || audio.state !== "running") return;
+  if (!stepNoise || stepNoise.sampleRate !== audio.sampleRate) {
+    stepNoise = audio.createBuffer(1, Math.ceil(audio.sampleRate * .19), audio.sampleRate);
+    const data = stepNoise.getChannelData(0);
+    for (let i=0; i<data.length; i++) data[i]=Math.random()*2-1;
+  }
+  const source=audio.createBufferSource(), filter=audio.createBiquadFilter(), gain=audio.createGain();
+  const now=audio.currentTime, duration=[.11,.065,.18][surface];
+  source.buffer=stepNoise;
+  filter.type="bandpass";
+  filter.frequency.setValueAtTime([530,1450,2700][surface],now);
+  filter.frequency.exponentialRampToValueAtTime([210,680,650][surface],now+duration);
+  gain.gain.setValueAtTime(.001, now);
+  gain.gain.exponentialRampToValueAtTime(.15, now+.006);
+  gain.gain.exponentialRampToValueAtTime(.001, now+duration);
+  source.connect(filter).connect(gain).connect(audio.destination);
+  source.onended=()=>{source.disconnect();filter.disconnect();gain.disconnect()};
+  source.start(now);source.stop(now+duration);
 }
 function localFoot(actor, i, pattern) {
   const rig = actor.feet;
@@ -141,7 +166,7 @@ function localFoot(actor, i, pattern) {
     forward *= reach;
     lateral = hipZ + offset * reach;
   }
-  return [forward, f.h / rig.scale, lateral];
+  return [forward, (f.h + groundHeight(f.x,f.z) - groundHeight(rig.x,rig.z)) / rig.scale, lateral];
 }
 
 export { advanceFeet, localFoot, humanFeet, houndFeet, knightFeet };

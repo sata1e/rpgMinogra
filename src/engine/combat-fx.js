@@ -1,3 +1,4 @@
+import { groundHeight } from "./valley.js";
 import { run, cut, trackY, depthRatio } from "./journey.js";
 import { weaponGeometry, katanaPose, blend3 } from "./wanderer.js";
 import { place, panel, rod, scene, triangle } from "./world3d.js";
@@ -16,13 +17,14 @@ function expireCombatFx() {
 function sampleBladeTrace(age) {
   if (age < cut().start || age > cut().end) return;
   const w = weaponGeometry(katanaPose(age), run.attackDir, run.pos, run.depth);
-  const tip = [w.tip.x, w.tip.z, w.tip.y - trackY / depthRatio];
-  const inner = [w.middle.x, w.middle.z, w.middle.y - trackY / depthRatio];
+  const base=groundHeight(run.pos,(run.depth-trackY)/depthRatio);
+  const tip = [w.tip.x, base+w.tip.z, w.tip.y - trackY / depthRatio];
+  const inner = [w.middle.x, base+w.middle.z, w.middle.y - trackY / depthRatio];
   bladeTrace.push({ tip, inner: blend3(tip, inner, 0.55), at: run.phase });
 }
 function impactFx(actor, hit, dx, dz) {
   const x = hit.x,
-    y = hit.z,
+    y = hit.z + groundHeight(run.pos,(run.depth-trackY)/depthRatio),
     z = hit.y - trackY / depthRatio;
   const length = Math.hypot(dx, dz) || 1;
   const direction = Math.atan2(dz / length, dx / length);
@@ -36,7 +38,7 @@ function impactFx(actor, hit, dx, dz) {
     const speed = 32 + Math.random() * 92,
       vy = 26 + Math.random() * 68;
     const spark = !actor || i === 0;
-    const land = (vy + Math.sqrt(vy * vy + 600 * Math.max(0, y - 1))) / 300;
+    const land = (vy + Math.sqrt(vy * vy + 600 * Math.max(0, y - groundHeight(x,z) - 1))) / 300;
     hitParticles.push({
       at: run.phase,
       x,
@@ -55,7 +57,7 @@ function impactFx(actor, hit, dx, dz) {
     hitParticles.splice(0, hitParticles.length - 180);
 }
 function drawCombatFx() {
-  place(0, 0);
+  place(0, 0, 0, 1, 0);
   for (let i = 1; i < bladeTrace.length; i++) {
     const a = bladeTrace[i - 1],
       b = bladeTrace[i],
@@ -68,13 +70,13 @@ function drawCombatFx() {
       x = p.x + p.vx * t,
       z = p.z + p.vz * t;
     if (age >= p.land && !p.spark) {
-      const r = p.size * 1.6;
+      const r = p.size * 1.6, h=groundHeight(x,z)+1;
       panel(
         [
-          [x - r, 1, z],
-          [x, 1, z - r * 0.6],
-          [x + r * 1.4, 1, z + 0.2],
-          [x + 0.3, 1, z + r * 0.8],
+          [x - r, h, z],
+          [x, h, z - r * 0.6],
+          [x + r * 1.4, h, z + 0.2],
+          [x + 0.3, h, z + r * 0.8],
         ],
         dryBlood,
         true,
