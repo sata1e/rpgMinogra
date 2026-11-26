@@ -1,11 +1,119 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Пепельный код</title><link rel="stylesheet" href="style.css">
-<header><div class="brand"><b class="sigil" aria-hidden="true">浪</b> ПЕПЕЛЬНЫЙ КОД</div><div class="right"><button id="sound" aria-label="Включить звук">♫</button><button id="pause" aria-label="Пауза">Ⅱ</button></div></header>
-<main><div class="title"><div><small id="act">РЕГИОН 1 / 4</small><h1>Кедровый тракт</h1><canvas id="chapter" aria-hidden="true"></canvas></div><div class="counter"><small>ПОБЕЖДЕНО</small><strong><i>✧</i> <span id="count">00</span><em> / <span id="total">47</span></em></strong></div></div>
-<section id="scene"><canvas id="world" aria-label="Молодой самурай на горной дороге к храму"></canvas><div class="life"><small>浪 &nbsp; МОЛОДОЙ САМУРАЙ</small><strong id="hp">100 / 100</strong><progress id="life" aria-label="Здоровье ронина" value="100" max="100"></progress><small class="breath-label">ДЫХАНИЕ</small><progress id="spirit" aria-label="Дыхание" value="100" max="100"></progress><small id="bladeState">Клинок в ножнах</small></div><div class="compass"><span id="zone">СТАРЫЙ ТРАКТ</span> · <b id="bearing"></b></div><canvas id="valley-map" width="176" height="94" aria-label="Карта долины: стрелка — ронин, точки — противники"></canvas><div id="notice" role="status"></div><div class="overlay" hidden><small>ПЕПЕЛЬНЫЙ КОД</small><h2 id="modalTitle">Пауза</h2><div class="difficulty-choice"><label for="difficulty">Сложность</label><select id="difficulty" aria-describedby="difficultyHint"><option value="easy">Лёгкая</option><option value="medium" selected>Средняя</option><option value="hard">Тяжёлая</option></select><p id="difficultyHint" aria-live="polite"></p></div><button id="resume">Продолжить</button></div></section>
-<div class="below"><span class="diamond" aria-hidden="true">令</span><div><small>ЗАЧИСТКА</small><p id="quest">Противники в регионе</p></div><div class="dots" id="dots">◇ ◇ ◇</div></div>
-<footer><div><kbd>WASD</kbd> Движение</div><div>Мышь · обзор и направление удара</div><div><kbd>ЛКМ</kbd> Удар · удержать для сильного</div><div><kbd>Shift</kbd> Рывок</div><div><kbd>F</kbd> Парирование</div><div><kbd>V</kbd> Ножны</div><div><kbd>E</kbd> Действие</div><div><kbd>Esc</kbd> Пауза и курсор</div></footer><div class="touch"><div class="pad"><button aria-label="Вверх" data-key="KeyW">↑</button><button aria-label="Влево" data-key="KeyA">←</button><button aria-label="Вниз" data-key="KeyS">↓</button><button aria-label="Вправо" data-key="KeyD">→</button></div><button id="attack">⚔ Меч · удержать</button><button id="sheathe">Меч / ножны</button><button id="dodge">» Рывок</button><button id="parry">◇ Парировать</button><button id="pick">✧ Действие</button></div></main><script defer src="game.js"></script><script defer src="journey.js"></script><script defer src="lettering.js"></script><script defer src="wanderer.js"></script><script defer src="combat-fx.js"></script><script defer src="valley.js"></script><script defer src="footing.js"></script><script defer src="world3d.js"></script><script defer src="creatures.js"></script><script defer src="bestiary.js"></script></html>
-
-
-
-
-
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1,viewport-fit=cover"
+    />
+    <title>Пепельный код</title>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <b class="sigil" aria-hidden="true">浪</b> ПЕПЕЛЬНЫЙ КОД
+      </div>
+      <div class="right">
+        <button id="sound" aria-label="Включить звук">♫</button
+        ><button id="pause" aria-label="Пауза">Ⅱ</button>
+      </div>
+    </header>
+    <main>
+      <div class="title">
+        <div>
+          <small id="act">РЕГИОН 1 / 4</small>
+          <h1>Кедровый тракт</h1>
+          <canvas id="chapter" aria-hidden="true"></canvas>
+        </div>
+        <div class="counter">
+          <small>ПОБЕЖДЕНО</small
+          ><strong
+            ><i>✧</i> <span id="count">00</span
+            ><em> / <span id="total">47</span></em></strong
+          >
+        </div>
+      </div>
+      <section id="scene">
+        <canvas
+          id="world"
+          aria-label="Молодой самурай на горной дороге к храму"
+        ></canvas>
+        <div class="life">
+          <small>浪 &nbsp; МОЛОДОЙ САМУРАЙ</small
+          ><strong id="hp">100 / 100</strong
+          ><progress
+            id="life"
+            aria-label="Здоровье ронина"
+            value="100"
+            max="100"
+          ></progress
+          ><small class="breath-label">ДЫХАНИЕ</small
+          ><progress
+            id="spirit"
+            aria-label="Дыхание"
+            value="100"
+            max="100"
+          ></progress
+          ><small id="bladeState">Клинок в ножнах</small>
+        </div>
+        <div class="compass">
+          <span id="zone">СТАРЫЙ ТРАКТ</span> · <b id="bearing"></b>
+        </div>
+        <canvas
+          id="valley-map"
+          width="176"
+          height="94"
+          aria-label="Карта долины: стрелка — ронин, точки — противники"
+        ></canvas>
+        <div id="notice" role="status"></div>
+        <div class="overlay" role="dialog" aria-labelledby="modalTitle" hidden>
+          <div class="menu-panel">
+            <small>浪 &nbsp; ПЕПЕЛЬНЫЙ КОД</small>
+            <h2 id="modalTitle">Пауза</h2>
+            <div class="difficulty-choice">
+              <label for="difficulty">Сложность</label
+              ><select id="difficulty" aria-describedby="difficultyHint">
+                <option value="easy">Лёгкая</option>
+                <option value="medium" selected>Средняя</option>
+                <option value="hard">Тяжёлая</option>
+              </select>
+              <p id="difficultyHint" aria-live="polite"></p>
+            </div>
+            <button id="resume">Продолжить</button>
+          </div>
+        </div>
+      </section>
+      <div class="below">
+        <span class="diamond" aria-hidden="true">令</span>
+        <div>
+          <small>ЗАЧИСТКА</small>
+          <p id="quest">Противники в регионе</p>
+        </div>
+        <div class="dots" id="dots">◇ ◇ ◇</div>
+      </div>
+      <footer>
+        <div><kbd>WASD</kbd> Движение</div>
+        <div>Мышь · обзор и направление удара</div>
+        <div><kbd>ЛКМ</kbd> Удар · удержать для сильного</div>
+        <div><kbd>Shift</kbd> Рывок</div>
+        <div><kbd>F</kbd> Парирование</div>
+        <div><kbd>V</kbd> Ножны</div>
+        <div><kbd>E</kbd> Действие</div>
+        <div><kbd>Esc</kbd> Пауза и курсор</div>
+      </footer>
+      <div class="touch">
+        <div class="pad">
+          <button aria-label="Вверх" data-key="KeyW">↑</button
+          ><button aria-label="Влево" data-key="KeyA">←</button
+          ><button aria-label="Вниз" data-key="KeyS">↓</button
+          ><button aria-label="Вправо" data-key="KeyD">→</button>
+        </div>
+        <button id="attack">Удар</button
+        ><button id="sheathe">Меч / ножны</button
+        ><button id="dodge">Рывок</button><button id="parry">Парирование</button
+        ><button id="pick">Действие</button>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
