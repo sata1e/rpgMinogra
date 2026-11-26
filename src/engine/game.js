@@ -26,12 +26,11 @@ view.cameraRange = 276;
 view.mouseLook = false;
 let hadLock = false;
 let requestingLock = false;
-let edgeTurn = 0;
-let previousPointer = null;
+let desktopLook = false;
 let releasingLock = false;
 const heldAlts = new Set();
 function syncCursor() {
-  document.documentElement.classList.toggle("hide-game-cursor", !run.paused && heldAlts.size === 0);
+  document.documentElement.classList.toggle("hide-game-cursor", document.pointerLockElement === canvas && !run.paused && heldAlts.size === 0);
 }
 function releaseMouse() {
   if (document.pointerLockElement === canvas && !releasingLock) {
@@ -41,8 +40,8 @@ function releaseMouse() {
 }
 function startMouseLook() {
   if (run.paused || heldAlts.size || releasingLock) return;
-  if (!window.matchMedia("(any-pointer:fine)").matches || requestingLock ||
-      document.pointerLockElement === canvas || !canvas.requestPointerLock) return;
+  if (!desktopLook || requestingLock || document.pointerLockElement === canvas) return;
+  if (!canvas.requestPointerLock) { lockFailed(); return; }
   requestingLock = true;
   try {
     canvas.requestPointerLock()?.catch(lockFailed);
@@ -52,15 +51,19 @@ function startMouseLook() {
 }
 function lockFailed() {
   requestingLock = false;
-  syncCursor();
+  if (run.paused || heldAlts.size || document.pointerLockElement === canvas) return;
+  modal(true);
+  $("#mouse-access").hidden = false;
 }
 function resetMouse() {
-  edgeTurn = 0;
-  previousPointer = null;
+  $("#mouse-access").hidden = true;
   heldAlts.clear();
   releaseMouse();
 }
-function resumeGame() {
+function resumeGame(event) {
+  desktopLook = event?.pointerType
+    ? event.pointerType === "mouse"
+    : window.matchMedia("(any-pointer:fine)").matches;
   resume();
   startMouseLook();
 }
@@ -73,7 +76,7 @@ function bindControls() {
   selector.onchange = () => chooseDifficulty(selector.value);
   chooseDifficulty(selector.value);
   $("#sheathe").onclick = toggleBlade;
-  $("#pause").onclick = () => (run.paused ? resumeGame() : modal(true));
+  $("#pause").onclick = (e) => (run.paused ? resumeGame(e) : modal(true));
   $("#resume").onclick = resumeGame;
   $("#pick").onclick = interact;
   $("#parry").onclick = parry;
@@ -96,7 +99,8 @@ function bindControls() {
     if (run.paused || heldAlts.size || (e.button !== 0 && e.button !== 2) || run.windAt !== null) return;
     e.preventDefault();
     view.mouseLook = true;
-    startMouseLook();
+    desktopLook = true;
+    if (document.pointerLockElement !== canvas) { startMouseLook(); return; }
     drawSword();
     attack(e.button === 2 ? 1 : 0);
   };
@@ -107,37 +111,15 @@ function bindControls() {
       Math.min(0.7, view.cameraPitch + dy * 0.003),
     );
   }
-  function lookUnlocked(e) {
-    if (run.paused || heldAlts.size || document.pointerLockElement === canvas) return;
-    view.mouseLook = true;
-    if (previousPointer) orbit(e.clientX - previousPointer.x, e.clientY - previousPointer.y);
-    previousPointer = { x: e.clientX, y: e.clientY };
-    const bounds = canvas.getBoundingClientRect();
-    const band = Math.min(40, bounds.width * 0.1);
-    const x = e.clientX - bounds.left;
-    edgeTurn = band > 0 ? Math.max(-1, Math.min(1,
-      x < band ? x / band - 1 : x > bounds.width - band ? 1 - (bounds.width - x) / band : 0
-    )) : 0;
-  }
-  window.addEventListener("pointermove", (e) => {
-    if (e.pointerType === "mouse") lookUnlocked(e);
-  }, true);
   window.addEventListener("mousemove", (e) => {
-    if (run.paused || heldAlts.size) return;
-    if (document.pointerLockElement === canvas) {
-      view.mouseLook = true;
-      orbit(e.movementX, e.movementY);
-    } else {
-      // WebViews may send only compatibility mouse events. Identical coordinates yield zero.
-      lookUnlocked(e);
-    }
+    if (run.paused || heldAlts.size || document.pointerLockElement !== canvas) return;
+    view.mouseLook = true;
+    orbit(e.movementX, e.movementY);
   }, true);
   document.addEventListener("pointerlockerror", lockFailed);
   document.addEventListener("pointerlockchange", () => {
     const locked = document.pointerLockElement === canvas;
     requestingLock = false;
-    previousPointer = null;
-    edgeTurn = 0;
     syncCursor();
     const wasLocked = hadLock;
     hadLock = locked;
@@ -185,8 +167,6 @@ function bindControls() {
   window.onkeydown = (e) => {
     if (!run.paused && (e.code === "AltLeft" || e.code === "AltRight")) {
       e.preventDefault();
-      edgeTurn = 0;
-      previousPointer = null;
       heldAlts.add(e.code);
       syncCursor();
       releaseMouse();
@@ -247,7 +227,6 @@ function frame(now) {
   const dt = Math.min(0.05, (now - run.last) / 1000);
   run.last = now;
   if (!run.paused) {
-    if (!heldAlts.size && !document.pointerLockElement) view.cameraYaw -= edgeTurn * 2.6 * dt;
     const steps = Math.max(1, Math.ceil(dt * 90));
     for (let i = 0; i < steps && !run.paused; i++) {
       const frozen = Math.min(run.impactPause, dt / steps);
