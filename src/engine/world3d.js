@@ -1561,7 +1561,50 @@ function project(v, out = [0, 0, 0]) {
 // the near plane and the ronin can make the complete prop translucent.
 // The cached translucent layer stores object IDs, so its opacity can keep
 // changing after the camera stops without rasterizing the landscape again.
-let veilObject = 0, veilDepth, veilSurface;
+let veilObject = 0;
+const veilLayers = [], cachedVeilLayers = [];
+let veilCount = 0, cachedVeilCount = 0;
+
+function veilLayer(layers, index) {
+  return layers[index] ??= {
+    depth: new Float32Array(cols * rows),
+    surface: new Uint32Array(cols * rows),
+  };
+}
+
+function copyVeilLayers(source, target, count) {
+  for (let n = 0; n < count; n++) {
+    const layer = veilLayer(target, n);
+    layer.depth.set(source[n].depth);
+    layer.surface.set(source[n].surface);
+  }
+}
+
+// Each pixel keeps one front surface per object, in nearest-first order.
+function recordVeil(pixel, depth, surface) {
+  let n = 0;
+  for (; n < veilCount; n++) {
+    const layer = veilLayers[n];
+    const oldDepth = layer.depth[pixel];
+    if (!oldDepth) break;
+    if ((layer.surface[pixel] >>> 10) === veilObject) {
+      if (depth <= oldDepth) return;
+      break;
+    }
+  }
+  if (n === veilCount) {
+    const layer = veilLayer(veilLayers, n);
+    layer.depth.fill(0);
+    veilCount++;
+  }
+  while (n > 0 && veilLayers[n-1].depth[pixel] < depth) {
+    veilLayers[n].depth[pixel] = veilLayers[n-1].depth[pixel];
+    veilLayers[n].surface[pixel] = veilLayers[n-1].surface[pixel];
+    n--;
+  }
+  veilLayers[n].depth[pixel] = depth;
+  veilLayers[n].surface[pixel] = surface;
+}
 const fades = new Map(), opacity = [1], freeFadeIds = [];
 let fadeFrame = 0, lastFadeTime;
 function veilId(object, blocked, dynamic = false) {
@@ -1688,6 +1731,7 @@ function raster(a, b, c, m, l, f) {
     cy = c[1] - ay,
     den = bx * cy - by * cx;
   if (Math.abs(den) < 0.005) return;
+  const packedVeil = (veilObject << 10) | (f ? 512 : 0) | (l << 6) | m;
   const inv = 1 / den,
     du = cy * inv,
     dv = -by * inv;
@@ -1700,10 +1744,7 @@ function raster(a, b, c, m, l, f) {
         i = y * cols + x;
       if (z <= depths[i]) continue;
       if (veilObject) {
-        if (z > veilDepth[i]) {
-          veilDepth[i] = z;
-          veilSurface[i] = (veilObject << 10) | (f ? 512 : 0) | (l << 6) | m;
-        }
+        recordVeil(i, z, packedVeil);
         continue;
       }
       depths[i] = z;
@@ -2278,13 +2319,16 @@ function paintPixels() {
       const mat = materials[i],
         z = depths[i],
         lum = lights[i];
-      const base = shadePixel(x,y,mat,z,lum,fine[i],bx,by,bz,invX);
-      if (veilDepth[i] > z) {
-        const packed = veilSurface[i];
-        const tint = shadePixel(x,y,packed & 63,veilDepth[i],(packed >> 6) & 7,
+      let color = shadePixel(x,y,mat,z,lum,fine[i],bx,by,bz,invX);
+      let visible = 0;
+      while (visible < veilCount && veilLayers[visible].depth[i] > z) visible++;
+      while (visible > 0) {
+        const layer = veilLayers[--visible], packed = layer.surface[i];
+        const tint = shadePixel(x,y,packed & 63,layer.depth[i],(packed >> 6) & 7,
           packed & 512,bx,by,bz,invX);
-        imageWords[i] = blendWater(base,tint,opacity[packed >>> 10]);
-      } else imageWords[i] = base;
+        color = blendWater(color,tint,opacity[packed >>> 10]);
+      }
+      imageWords[i] = color;
     }
   }
 }
@@ -2387,13 +2431,12 @@ function renderWorld() {
     materials = new Uint8Array(cols * rows);
     lights = new Uint8Array(cols * rows);
     fine = new Uint8Array(cols * rows);
-    veilDepth=new Float32Array(cols*rows);
-    veilSurface=new Uint32Array(cols*rows);
+    veilLayers.length = cachedVeilLayers.length = 0;
+    veilCount = cachedVeilCount = 0;
     backdrop = [
       new Float32Array(cols * rows),
       new Uint8Array(cols * rows),
       new Uint8Array(cols * rows),
-      new Float32Array(cols*rows), new Uint32Array(cols*rows),
     ];
     backdropKey = "";
   }
@@ -2411,13 +2454,15 @@ function renderWorld() {
     depths.set(backdrop[0]);
     materials.set(backdrop[1]);
     lights.set(backdrop[2]);
-    veilDepth.set(backdrop[3]); veilSurface.set(backdrop[4]);
+    veilCount = cachedVeilCount;
+    copyVeilLayers(cachedVeilLayers, veilLayers, veilCount);
     fine.fill(0);
   } else {
     landscape();
-    veilDepth.fill(0);
+    veilCount = 0;
     drawScenery();
-    backdrop[3].set(veilDepth); backdrop[4].set(veilSurface);
+    cachedVeilCount = veilCount;
+    copyVeilLayers(veilLayers, cachedVeilLayers, cachedVeilCount);
     if (waterVisible) renderReflection();
     backdrop[0].set(depths);
     backdrop[1].set(materials);
