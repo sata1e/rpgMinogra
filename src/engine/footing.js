@@ -133,6 +133,7 @@ function advanceFeet(b, dt) {
       }
       Object.assign(f, {
         walking: hero && !braced,
+        plantedTime: hero && !braced ? mix(.095, .035, stance) : 0,
         fromHeight: 0,
         fromX: f.x,
         fromZ: f.z,
@@ -148,13 +149,14 @@ function advanceFeet(b, dt) {
   const t = rig.time / rig.duration;
   rig.feet.forEach((f, i) => {
     if (pattern[i][2] !== rig.group) return;
-    const u = f.walking ? ease((t-.055)/.89) : ease(t);
+    const plantedTime = f.plantedTime ?? .055;
+    const u = f.walking ? ease((t-plantedTime)/(1-2*plantedTime)) : ease(t);
     f.x = mix(f.fromX, f.toX, u);
     f.z = mix(f.fromZ, f.toZ, u);
     f.h =
-      t === 1
+      u === 1
         ? 0
-        : (f.fromHeight || 0)*(1-ease(t)) + Math.sin((f.walking ? ease(t) : t) * Math.PI) *
+        : (f.fromHeight || 0)*(1-ease(t)) + Math.sin((f.walking ? u : t) * Math.PI) *
           f.clearance;
     if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
 

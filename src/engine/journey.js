@@ -366,6 +366,7 @@ function parry() {
   riposteUntil = -10;
   parryUsed = false;
   run.deflectedAt = -10;
+  run.guardDraw = !run.bladeOut;
   run.bladeOut = true;
   run.bladeChanged = -10;
   run.guardAt = run.phase;

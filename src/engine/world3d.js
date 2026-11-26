@@ -967,7 +967,7 @@ function bendJoint(root, end, upper, lower, pole) {
   const offset = Math.sqrt(Math.max(0, upper * upper - along * along));
   return root.map((v, i) => v + axis[i] * along + (bend[i] * offset) / length);
 }
-function arm3(root, hand, side) {
+function arm3(root, hand, side, gripAxis, closed) {
   const elbow = bendJoint(root, hand, 20, 20, [-0.65, -1, side * 0.75]);
   const forearm = elbow.map((v, i) => mix(v, hand[i], 0.43));
   const upper = root.map((v, i) => mix(v, elbow[i], 0.37));
@@ -997,17 +997,25 @@ function arm3(root, hand, side) {
     ];
     sculpt([section(t), section(t + 0.085)], 29, 10);
   }
-  ovalMesh(...hand, 3.3, 3.1, 2.8, 2);
-  for (let j = 0; j < 3; j++)
-    rod(
-      [hand[0] + 1, hand[1] + j * 1.2 - 1, hand[2] - 2],
-      [hand[0] + 3, hand[1] + j * 1.2 - 1, hand[2] + 0.6],
-      0.85,
-      3,
-      true,
-    );
+  const axis = blend3([0,-1,0], gripAxis, closed);
+  const len = Math.hypot(...axis) || 1;
+  for (let k=0; k<3; k++) axis[k] /= len;
+  const radial = axis.map((v,k)=>side*((k===2 ? 1 : 0)-v*axis[2]));
+  const span = Math.hypot(...radial) || 1;
+  for (let k=0; k<3; k++) radial[k] /= span;
+  const across = [axis[1]*radial[2]-axis[2]*radial[1], axis[2]*radial[0]-axis[0]*radial[2],
+    axis[0]*radial[1]-axis[1]*radial[0]];
+  const finger = (along,r,t)=>hand.map((v,k)=>v+axis[k]*along+radial[k]*r+across[k]*t);
+  ovalMesh(...finger(0,1.7*closed,0), 3.1, 3.2, 2.2, 2);
+  for (const j of [-1.9,-.6,.7,2]) {
+    const knuckle = finger(j,1.4,1.3);
+    const joint = finger(j+1-closed,.4,2.5);
+    rod(knuckle,joint,.78,2,true);
+    rod(joint,finger(j+2*(1-closed),-1.3*closed,1.9),.67,2,true);
+  }
+  rod(finger(-2,1.6,-1), finger(-1,-.8,-2.1),1,2,true);
 }
-function jacket(hip, shoulder, neck, drop) {
+function jacket(hip, shoulder, neck, drop, strideTwist) {
   hull(
     [
       [hip, 48 - drop, 0, 9, 11],
@@ -1028,7 +1036,25 @@ function jacket(hip, shoulder, neck, drop) {
     [hip + 9, 50 - drop, -2],
   ];
   for (let i = 1; i < seam.length; i++)
-    rod(seam[i - 1], seam[i], 1.05, 0, true);
+    panel([seam[i-1], seam[i], seam[i].map((v,k)=>k===2?v-2.3:v),
+      seam[i-1].map((v,k)=>k===2?v-2.3:v)], 30, true);
+  // A folded scarf end rests on the back of the jacket. Its free corner
+  // swings with the shoulders while the collar end stays pinned.
+  const scarf = [
+    [shoulder-5, neck, -3, 4],
+    [shoulder-10.5, neck-7, -4, 3.7],
+    [shoulder-12, neck-13, -3+strideTwist, 3.3],
+    [shoulder-13-Math.abs(strideTwist), neck-19, -1+3*strideTwist, 2.8],
+  ];
+  let previousFold;
+  for (const [x,y,z,w] of scarf) {
+    const fold = [[x,y,z-w],[x-1.4,y-.5,z],[x+.4,y-1.1,z+w]];
+    if (previousFold) {
+      panel([previousFold[0],fold[0],fold[1],previousFold[1]], 30, true);
+      panel([previousFold[1],fold[1],fold[2],previousFold[2]], 0, true);
+    }
+    previousFold = fold;
+  }
   // Split front panels flare away from the thighs beneath the sash.
   for (const side of [-1, 1]) {
     let prior;
@@ -1038,14 +1064,14 @@ function jacket(hip, shoulder, neck, drop) {
           32 -
           drop +
           0.6 * Math.cos(a) +
-          motion.stride * Math.sin(motion.gait + side) * 1.6;
+          strideTwist * side * (1 + Math.cos(a));
       const top = [
         hip + 9 * Math.cos(a),
         49 - drop,
         side * (1 + 11 * Math.sin(a)),
       ];
       const bottom = [
-        hip + 13 * Math.cos(a),
+        hip + 13 * Math.cos(a) - side * strideTwist * 1.8 * Math.sin(a),
         hem,
         side * (3 + 10.6 * Math.sin(a)),
       ];
@@ -1133,10 +1159,9 @@ function ronin() {
     fall = groundPose?.fall,
     p = fall ? { ...run.fall.pose } : katanaPose(age),
     dir = fall ? run.fall.heading : age < cut().duration || p.heldAttack ? run.attackDir : run.heading;
+  const baseDrop = p.drop, baseShift = p.shift, baseLateral = p.lateral;
   if (fall) {
     p.drop += fall.drop;
-    p.mouth = [...p.mouth];
-    p.mouth[2] -= fall.drop;
     if (run.bladeOut) {
       p.tsuba = blend3(p.tsuba, [8, 18, 48 - fall.drop], fall.relax);
       p.pitch = mix(p.pitch, -.26, fall.relax);
@@ -1153,7 +1178,6 @@ function ronin() {
       p.yaw = mix(p.yaw, -2.94, tuck);
       p.pitch = mix(p.pitch, 0.14, tuck);
     }
-    p.mouth[2] -= 25 * tuck;
   }
   const rig = heroMotion.feet;
   const move = cut();
@@ -1181,18 +1205,15 @@ function ronin() {
     counterSwing=Math.max(-1,Math.min(1,(left-right)/30))*walking*(1-.75*guardStance);
     const transfer=(rig.feet[0].h-rig.feet[1].h)*walking;
     const sheathHold = p.sheathHold ?? 0;
-    p.lateral += transfer * (.22 + .18 * sheathHold);
-    p.coil += counterSwing*.13 - .12*sheathHold;
-    p.shift+=1.5*walking;
-    p.drop+=walking*(1.3+Math.abs(counterSwing)*1.1);
-    // Move the carrier with the pelvis. Until the tip clears it, the hilt
-    // receives the same translation, even when a foot lands mid-draw.
-    const sway = [counterSwing*1.1,p.lateral,-p.drop];
-    const ready = p.carryReady ?? 1;
-    p.mouth = p.mouth.map((n,i)=>n+sway[i]);
-    const handSway = [counterSwing*2,walking*2,-(p.drop-6*guardStance)];
-    p.tsuba = p.tsuba.map((n,i)=>n+mix(sway[i],handSway[i],ready));
+    p.lateral += transfer * (.22 + .09 * sheathHold);
+    p.coil += counterSwing * (.13 + .06 * sheathHold);
+    p.shift += walking * (1.5 - sheathHold);
+    p.drop += walking * 1.5 - Math.abs(transfer) * .13;
   }
+  const beltMotion = [(p.shift-baseShift)*.82, p.lateral-baseLateral, baseDrop-p.drop];
+  p.mouth = p.mouth.map((n,i)=>n+beltMotion[i]);
+  const handMotion = [counterSwing*2,walking*2,-walking];
+  p.tsuba = p.tsuba.map((n,i)=>n+mix(beltMotion[i],handMotion[i],p.carryReady));
   const v = weaponGeometry(p, { x: 1, y: 0 }, 0, 0),
     point = (a) => [a.x, a.z, a.y],
     shift = p.shift,
@@ -1303,7 +1324,7 @@ function ronin() {
   };
   torsoPose = p;
   orientation += coil;
-  jacket(hip, shoulder, neck, drop);
+  jacket(hip, shoulder, neck, drop, counterSwing);
   orientation = facingAngle;
   hull(
     [
@@ -1328,12 +1349,26 @@ function ronin() {
   if (groundPose) groundPose.bodyContact = false;
   const mouth = point(v.mouth),
     shoe = point(v.shoe);
-  const saya = (t) => mouth.map((n, i) => mix(n, shoe[i], t));
-  rod(mouth, shoe, weapon.width + .25, weapon.lacquer, true);
-  rod(mouth, saya(0.055), 3, 12, true);
-  rod(saya(0.92), shoe, 3.1, 12, true);
+  const saya = (t) => {
+    const pt = blend3(mouth, shoe, t);
+    pt[1] -= weapon.curve*t*(1-t);
+    return pt;
+  };
+  const beltKnot = [hip - 2, 50 - drop, p.lateral - 12];
+  const tie = saya(.18);
+  const loop = blend3(beltKnot, tie, .52);
+  loop[1] -= 2.4;
+  rod(beltKnot, loop, 1.35, 30, true);
+  rod(loop, tie, 1.25, 30, true);
+  ovalMesh(...beltKnot, 2.7, 2, 2.1, 30);
+  rod(beltKnot, [beltKnot[0]-4-counterSwing, beltKnot[1]-7, beltKnot[2]-1], 1.1, 0, true);
+  const radius = weapon.width + .5;
+  for (let i=0; i<5; i++)
+    rod(saya(i/5), saya((i+1)/5), radius*(1-.17*i/4), weapon.lacquer, true);
+  rod(mouth, saya(0.055), radius+.35, 12, true);
+  rod(saya(0.94), shoe, radius*.91, 12, true);
   for (const t of [0.17, 0.22, 0.27])
-    rod(saya(t), saya(t + 0.024), 3, 30, true);
+    rod(saya(t), saya(t + 0.024), radius+.22, 30, true);
   torsoPose = p;
   if (groundPose) {
     groundPose.bodyContact = true;
@@ -1343,9 +1378,9 @@ function ronin() {
   if (groundPose) groundPose.chin = null;
   torsoPose = null;
   const reach = p.reach;
-  const armSwing=counterSwing*8;
+  const armSwing=counterSwing*9;
   const wrist = blend3(
-    [shoulder + 11 + armSwing, 52 - drop, 14],
+    [shoulder + 5 + armSwing, 46 - drop + Math.max(0,armSwing)*.22, 15 + .12*Math.abs(armSwing)],
     point(v.grip),
     reach,
   );
@@ -1356,13 +1391,15 @@ function ronin() {
   );
   const pommelHand = blend3(point(v.guard), point(v.rear), 0.83);
   const sheathHand = blend3(support, saya(.06), p.sheathHold ?? 0);
+  const bladeDir = [Math.cos(p.yaw)*Math.cos(p.pitch),Math.sin(p.pitch),Math.sin(p.yaw)*Math.cos(p.pitch)];
+  const sheathDir = [p.sheathAxis[0],p.sheathAxis[2],p.sheathAxis[1]];
   arm3(
     shoulderPoint([shoulder, neck - 8, -13]),
-    blend3(blend3(sheathHand, pommelHand, p.supportGrip), [shoulder + 8, neck + 3, -7], tuck),
-    -1,
+    blend3(blend3(sheathHand, pommelHand, p.supportGrip), [shoulder + 8, neck + 3, -7], tuck*(1-p.sheathHold)),
+    -1, blend3(sheathDir, bladeDir, p.supportGrip), Math.max(p.sheathHold,p.supportGrip),
   );
   arm3(shoulderPoint([shoulder + 2, neck - 8, 13]),
-    run.bladeOut ? wrist : blend3(wrist, [shoulder + 8, neck, 9], tuck), 1);
+    run.bladeOut ? wrist : blend3(wrist, [shoulder + 8, neck, 9], tuck), 1, bladeDir, reach);
   if (groundPose) groundPose.bodyContact = false;
   const hilt = (t) =>
     point(v.rear).map((value, i) => mix(value, point(v.guard)[i], t));
@@ -1373,9 +1410,14 @@ function ronin() {
     b = point(v.middle),
     c = point(v.tip);
   scene.heroBladeMiddle = worldPoint(b);
-  rod([a[0], a[1], a[2] - 4], [a[0], a[1], a[2] + 4], 1.8, 3, true);
-  if (p.exposed < 0.008) return;
   const normal = [-Math.cos(p.yaw)*Math.sin(p.pitch), Math.cos(p.pitch), -Math.sin(p.yaw)*Math.sin(p.pitch)];
+  const cross = [-Math.sin(p.yaw), 0, Math.cos(p.yaw)];
+  const rim = Array.from({length:10}, (_,i)=>{
+    const t = i*Math.PI/5;
+    return a.map((v,k)=>v+normal[k]*4.7*Math.cos(t)+cross[k]*3.9*Math.sin(t));
+  });
+  panel(rim, 3, true);
+  if (p.exposed < 0.008) return;
   const ridge = (sign) => [a,b,c].map((pt,i) => pt.map((n,k) =>
     n + sign * normal[k] * weapon.width * [1,.82,0][i]));
   const spine = ridge(1);

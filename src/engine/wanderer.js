@@ -64,7 +64,7 @@ function katanaPose(age) {
 function blendCutPose(origin,target,t) {
   const next = {...target};
   for (const key of ["mouth","tsuba"]) next[key] = blend3(origin[key],next[key],t);
-  for (const key of ["shift","drop","coil","load","lateral","shrug","turn","reach","exposed","supportGrip","carryReady"]) {
+  for (const key of ["shift","drop","coil","load","lateral","shrug","turn","reach","exposed","supportGrip","carryReady","sheathHold"]) {
     next[key] = mix(origin[key],next[key],t);
   }
   for (const key of ["yaw","pitch"]) {
@@ -82,9 +82,12 @@ function baseKatanaPose(age) {
   const blocking = run.guardAt > run.rollAt && !midCut &&
     (parryAge < parryTiming.recover || sinceContact < riposteWindow);
   const transition = bladeProgress();
-  const carry = run.bladeOut ? transition : 1 - transition;
+  const carry = blocking && run.guardDraw
+    ? clamp01(parryAge / parryTiming.open)
+    : run.bladeOut ? transition : 1 - transition;
   const readyHand = [19, 2, 57],
-    axis = bladeAxis(-1.72, -1.02);
+    carryYaw = -2.93, carryPitch = -.23,
+    axis = bladeAxis(carryYaw, carryPitch);
   let exposed = ease((carry - 0.12) / 0.55),
     ready = ease((carry - 0.67) / 0.33),
     reach = ease(carry / 0.12);
@@ -122,16 +125,17 @@ function baseKatanaPose(age) {
     reach = run.fromSheath ? ease(draw / 0.2) : 1;
     ready = run.fromSheath ? 0 : 1;
   }
-  const mouth = [-8 + shift * 0.35, 10, 79 - drop].map(
-    (n, i) => n + axis[i] * (weapon.length - 25) * exposed * (1 - ready),
+  const slide = Math.min(weapon.length * .49, Math.max(0, weapon.length - 30)) * exposed * (1 - ready);
+  const mouth = [9 + shift * .82, -14 + lateral, 51 - drop].map(
+    (n, i) => n + axis[i] * slide,
   );
   const drawn = mouth.map(
     (n, i) =>
       n - axis[i] * weapon.length * exposed - (i === 2 ? weapon.curve * exposed * exposed : 0),
   );
   let hand = blend3(drawn, readyHand, ready),
-    yaw = mix(-1.72, 0.16, ready),
-    pitch = mix(-1.02, 0.67, ready);
+    yaw = mix(carryYaw, 0.16, ready),
+    pitch = mix(carryPitch, 0.67, ready);
   if (midCut) {
     const side = run.fromSheath ? 1 : run.slashSide;
     // Move the grip around the body. The tip travels farther than the hands.
@@ -182,9 +186,9 @@ function baseKatanaPose(age) {
       settle,
     );
     for (let i = 0; i < 3; i++)
-      mouth[i] -= axis[i] * (weapon.length - 25) * exposed * (1 - ready) * wind;
+      mouth[i] -= axis[i] * slide * wind;
   } else if (blocking) {
-    const guard = ease(parryAge / parryTiming.open) * (1 - ease((parryAge - parryTiming.close) / (parryTiming.recover - parryTiming.close)));
+    const guard = ready * ease(parryAge / parryTiming.open) * (1 - ease((parryAge - parryTiming.close) / (parryTiming.recover - parryTiming.close)));
     coil = -0.32 * guard;
     drop = 3 * guard;
     hand = blend3(hand, [20, -7, 70], guard);
@@ -229,7 +233,7 @@ function baseKatanaPose(age) {
       : ready;
   return {
     carryReady: midCut ? mix(ready,1,ease((age-move.end)/(move.duration-move.end))) : ready,
-    sheathHold: !midCut && !blocking ? reach * (1-ready) : 0,
+    sheathHold: midCut ? (run.fromSheath ? 1-supportGrip : 0) : 1-ready,
     supportGrip: weapon.grip < 11 ? 0 : supportGrip,
     reach,
     exposed,
@@ -259,7 +263,7 @@ function weaponGeometry(p, dir, x, y) {
   const length = weapon.length * p.exposed;
   return {
     mouth: world(p.mouth),
-    shoe: along(p.mouth, p.sheathAxis, weapon.length + 2, 2.5),
+    shoe: along(p.mouth, p.sheathAxis, weapon.length + 2, weapon.curve),
     rear: along(p.tsuba, axis, -weapon.grip),
     grip: along(p.tsuba, axis, -Math.min(5,weapon.grip * .36)),
     guard: world(p.tsuba),
