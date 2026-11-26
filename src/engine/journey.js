@@ -300,7 +300,7 @@ function drawSword() {
     run.paused || run.fall ||
     bladeProgress() < 1 ||
     run.windAt !== null ||
-    run.phase - run.attackAt < cut().duration ||
+    (run.phase - run.attackAt < cut().duration && (!cut().entry || cut().interrupted || cut().queued !== undefined)) ||
     run.phase - run.rollAt < rollDuration ||
     run.phase - run.guardAt < parryTiming.recover && run.phase >= riposteUntil
   )
@@ -356,6 +356,7 @@ function parry() {
   run.bladeOut = true;
   run.bladeChanged = -10;
   run.guardAt = run.phase;
+  delete activeCut.queued;
   spirit -= 9;
   ping(390);
 }
@@ -478,15 +479,29 @@ function attack(requestedStyle) {
   run.windAt = null;
   if (run.paused || run.fall) return;
   const style = requestedStyle ?? (held >= chargeDuration ? 1 : 0);
+  const age = run.phase-run.attackAt;
+  if (age < cut().duration && cut().entry) {
+    if (!cut().interrupted && cut().queued === undefined) cut().queued = style;
+    return;
+  }
+  startCut(style);
+}
+function startCut(style, previous = null) {
   const base = (run.bladeOut ? readyCuts : cuts)[style];
   const cost = Math.round(base.cost * weapon.tempo);
   if (spirit < cost) {
     whisper("Недостаточно выносливости");
     return;
   }
+  const previousAge = run.phase-run.attackAt;
+  const link = previous ? {
+    pose: katanaPose(previousAge),
+    guard: ease((previousAge-previous.end)/(previous.duration-previous.end)),
+    lead: previous.entry.leadSide > 0 ? 0 : 1,
+  } : null;
   activeCut = { ...base, cost, duration: base.duration * weapon.tempo,
     start: base.start * weapon.tempo, end: base.end * weapon.tempo,
-    damage: base.damage * weapon.tempo };
+    damage: base.damage * weapon.tempo, link };
   run.fromSheath = !run.bladeOut;
   run.bladeOut = true;
   run.bladeChanged = -10;
@@ -524,6 +539,23 @@ function attack(requestedStyle) {
     if (airborne && lead === rig.group) landing = rig.duration-rig.time;
   }
   const contactBeat = activeCut.start + .46*(activeCut.end-activeCut.start);
+  if (link && rig) {
+    lead = link.lead;
+    landing = contactBeat;
+    const side = lead ? 1 : -1;
+    const foot = rig.feet[lead];
+    const forward = 16 + base.step*.5;
+    rig.group = lead;
+    rig.time = 0;
+    rig.duration = contactBeat;
+    rig.hasStepped = true;
+    Object.assign(foot, {
+      fromX:foot.x, fromZ:foot.z, fromHeight:foot.h,
+      toX:rig.x+forward*Math.cos(yaw)-side*9*Math.sin(yaw),
+      toZ:rig.z+forward*Math.sin(yaw)+side*9*Math.cos(yaw),
+      clearance:5, walking:false,
+    });
+  }
   activeCut.entry = {vx:velocity, vz:depthVelocity, leadSide:lead ? 1 : -1,
     landAt:Math.min(landing,contactBeat), footRate:Math.max(1,landing/contactBeat)};
   let nearest = weapon.length + base.step + 58;
@@ -556,6 +588,7 @@ function roll() {
   riposteUntil = -10;
   spirit -= rollCost;
   run.rollAt = run.phase;
+  delete activeCut.queued;
   run.cleanAt = -10;
   const travelIntent = movementInput();
   run.rollDir =
@@ -565,6 +598,7 @@ function roll() {
   ping(170);
 }
 function modal(open) {
+  if (open) delete activeCut.queued;
   resetMouse();
   run.windAt = null;
   run.paused = open;
@@ -968,6 +1002,8 @@ function update(dt) {
           bodyImpact(heroMotion, -dx, -dy, traits.damage * 4 + 55);
           run.windAt = null;
           run.spent = true;
+          activeCut.interrupted = true;
+          delete activeCut.queued;
           riposteUntil = -10;
           hurtAt = run.phase;
           ping(88);
@@ -1037,6 +1073,15 @@ function update(dt) {
     if (d.hp && d.fellAt !== undefined && run.phase - d.fellAt >= knockdownDuration(d)) {
       delete d.fellAt;
       d.feet = null;
+    }
+  }
+  if (!run.paused && !rolling && activeCut.queued !== undefined && attackAge >= activeCut.end &&
+      run.attackAt >= 0 && run.phase-run.guardAt >= parryTiming.recover) {
+    const support = heroMotion.feet?.feet[activeCut.entry.leadSide > 0 ? 1 : 0];
+    if (!support || support.h === 0) {
+      const style = activeCut.queued;
+      delete activeCut.queued;
+      startCut(style, activeCut);
     }
   }
   ui();

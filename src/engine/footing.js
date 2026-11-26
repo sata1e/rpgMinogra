@@ -81,7 +81,7 @@ function advanceFeet(b, dt) {
     rig.time = rig.duration;
     return;
   }
-  if (entry && rig.time >= rig.duration) return;
+  if ((entry || (hero && cut().queued !== undefined && run.attackAt >= 0)) && rig.time >= rig.duration) return;
   if (rig.time >= rig.duration) {
     let error = 0;
     rig.feet.forEach((f, i) => {
@@ -133,6 +133,7 @@ function advanceFeet(b, dt) {
       }
       Object.assign(f, {
         walking: hero && !braced,
+        fromHeight: 0,
         fromX: f.x,
         fromZ: f.z,
         toX, toZ,
@@ -153,7 +154,7 @@ function advanceFeet(b, dt) {
     f.h =
       t === 1
         ? 0
-        : Math.sin((f.walking ? ease(t) : t) * Math.PI) *
+        : (f.fromHeight || 0)*(1-ease(t)) + Math.sin((f.walking ? ease(t) : t) * Math.PI) *
           f.clearance;
     if (hero && t === 1 && speed > 6) soundStep(groundKind(f.x, f.z));
 

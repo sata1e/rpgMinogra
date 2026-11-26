@@ -46,6 +46,22 @@ function ripostePose(age, move) {
   };
 }
 function katanaPose(age) {
+  const move = cut();
+  if (!move.link || age < 0 || age >= move.start) return baseKatanaPose(age);
+  const origin = move.link.pose;
+  const next = baseKatanaPose(move.start);
+  const t = ease(age/move.start);
+  for (const key of ["mouth","tsuba"]) next[key] = blend3(origin[key],next[key],t);
+  for (const key of ["shift","drop","coil","load","lateral","shrug","turn","reach","exposed","supportGrip","carryReady"]) {
+    next[key] = mix(origin[key],next[key],t);
+  }
+  for (const key of ["yaw","pitch"]) {
+    const delta = next[key]-origin[key];
+    next[key] = origin[key] + Math.atan2(Math.sin(delta),Math.cos(delta))*t;
+  }
+  return next;
+}
+function baseKatanaPose(age) {
   const move = cut(),
     midCut = age >= 0 && age < move.duration;
   if (midCut && move.riposte) return ripostePose(age, move);
