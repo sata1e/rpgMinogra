@@ -25,7 +25,19 @@ view.cameraPitch = 0.19;
 view.cameraRange = 276;
 view.mouseLook = false;
 let hadLock = false;
+let releasingLock = false;
+const heldAlts = new Set();
+function syncCursor() {
+  document.documentElement.classList.toggle("hide-game-cursor", !run.paused && heldAlts.size === 0);
+}
+function releaseMouse() {
+  if (document.pointerLockElement === canvas && !releasingLock) {
+    releasingLock = true;
+    document.exitPointerLock();
+  }
+}
 function startMouseLook() {
+  if (run.paused || heldAlts.size || releasingLock) return;
   if (!window.matchMedia("(pointer:fine)").matches) return;
   view.mouseLook = true;
   // Embedded previews can deny pointer lock. Hover-look still works there.
@@ -34,7 +46,8 @@ function startMouseLook() {
   } catch {}
 }
 function resetMouse() {
-  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  heldAlts.clear();
+  releaseMouse();
 }
 function resumeGame() {
   resume();
@@ -44,6 +57,7 @@ export function pauseGame() {
   if (!run.paused) modal(true);
 }
 function bindControls() {
+  document.addEventListener("game:pause", syncCursor);
   const selector = $("#difficulty");
   selector.onchange = () => chooseDifficulty(selector.value);
   chooseDifficulty(selector.value);
@@ -68,7 +82,7 @@ function bindControls() {
   canvas.oncontextmenu = (e) => e.preventDefault();
   canvas.onauxclick = (e) => e.preventDefault();
   canvas.onmousedown = (e) => {
-    if (run.paused || (e.button !== 0 && e.button !== 2) || run.windAt !== null) return;
+    if (run.paused || heldAlts.size || (e.button !== 0 && e.button !== 2) || run.windAt !== null) return;
     e.preventDefault();
     view.mouseLook = true;
     drawSword();
@@ -82,15 +96,22 @@ function bindControls() {
     );
   }
   window.addEventListener("mousemove", (e) => {
-    if (run.paused || (!view.mouseLook && e.target !== canvas)) return;
+    if (run.paused || heldAlts.size || (!view.mouseLook && e.target !== canvas)) return;
     if (document.pointerLockElement !== canvas && e.target !== canvas) return;
     view.mouseLook = true;
     orbit(e.movementX, e.movementY);
   });
   document.addEventListener("pointerlockchange", () => {
     const locked = document.pointerLockElement === canvas;
-    if (hadLock && !locked && !run.paused) modal(true);
+    const wasLocked = hadLock;
     hadLock = locked;
+    if (locked && (heldAlts.size || run.paused)) releaseMouse();
+    if (!locked) {
+      const intentional = releasingLock;
+      releasingLock = false;
+      if (intentional && !heldAlts.size && !run.paused) startMouseLook();
+      else if (wasLocked && !intentional && !run.paused) modal(true);
+    }
   });
   // Suppress touch-generated mouse commands while keeping touch camera orbit.
   let touchDrag = null;
@@ -126,6 +147,13 @@ function bindControls() {
     }
   };
   window.onkeydown = (e) => {
+    if (!run.paused && (e.code === "AltLeft" || e.code === "AltRight")) {
+      e.preventDefault();
+      heldAlts.add(e.code);
+      syncCursor();
+      releaseMouse();
+      return;
+    }
     if (run.paused && e.target instanceof HTMLSelectElement && e.code !== "Escape") return;
     if (
       ![
@@ -158,7 +186,14 @@ function bindControls() {
     else if (e.code.startsWith("Shift") && !e.repeat) dodge();
     else keys.add(e.code);
   };
-  window.onkeyup = (e) => keys.delete(e.code);
+  window.onkeyup = (e) => {
+    keys.delete(e.code);
+    if (heldAlts.delete(e.code)) {
+      e.preventDefault();
+      syncCursor();
+      if (!heldAlts.size) startMouseLook();
+    }
+  };
   window.onblur = () => {
     if (!run.paused) modal(true);
   };

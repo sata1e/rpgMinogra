@@ -523,10 +523,12 @@ kbd {
 
 #world,
 #world:active {
-  cursor: crosshair;
+  cursor: default;
 }
 .life,
 .compass,
 #notice {
   pointer-events: none;
 }
+
+html.hide-game-cursor, html.hide-game-cursor * { cursor: none !important; }
