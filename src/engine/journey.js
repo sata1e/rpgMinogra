@@ -921,7 +921,7 @@ function update(dt) {
     cut().impact = {sampleAge, at:age};
     firstTarget.heavyImpactAt = run.phase;
   }
-  cutVegetation(sweep,run.combo===1,run.attackDir,
+  cutVegetation(sweep,run.attackDir,
     firstContact ? 2*(Math.floor(firstContact.i/2)+1) : sweep.length);
   sampleBladeTrace(age);
   for (const d of guards) {

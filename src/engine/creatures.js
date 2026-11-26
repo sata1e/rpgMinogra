@@ -13,6 +13,7 @@ import {
 import { run } from "./journey.js";
 import { weaponArm } from "./enemy-attacks.js";
 import { impactDrop } from "./demon-fall.js";
+import { demonSection } from "./cutting.js";
 import { localFoot, houndFeet, knightFeet } from "./footing.js";
 
 // Elliptical sections perpendicular to a centreline let a limb bend continuously
@@ -99,6 +100,22 @@ function fallingFoot(d, index, pattern, fall) {
   return [foot[0] + (pattern[index][0] - foot[0]) * blend,
     foot[1] * (1 - blend), foot[2] + (pattern[index][1] - foot[2]) * blend];
 }
+// The same cross-section closes the detached limb and the animated attachment.
+function jointSection(x,y,z,r,side) {
+  let outer=Array.from({length:8},(_,i)=>{
+    const a=i*Math.PI/4;
+    return [x+r*Math.cos(a),y+(side? r*Math.sin(a):0),z+(side?0:r*Math.sin(a))];
+  });
+  const center=[x,y,z];
+  for (let j=0;j<demonSection.length;j++) {
+    const inner=outer.map(p=>p.map((v,k)=>center[k]+(v-center[k])*(1-1/(demonSection.length-j))));
+    outer.forEach((p,i)=>{
+      const next=(i+1)%outer.length;
+      panel(j===demonSection.length-1 ? [p,outer[next],center] : [p,outer[next],inner[next],inner[i]],demonSection[j],true);
+    });
+    outer=inner;
+  }
+}
 function houndModel(d, load, snap, fall, sampleLunge) {
   const h = houndBackHeight(d, load, snap);
   const chest = fall ? 6 * fall.brace * Math.min(1, fall.rise * 4) : 0;
@@ -133,6 +150,7 @@ function houndModel(d, load, snap, fall, sampleLunge) {
       const index = (s > 0 ? 2 : 0) + (front ? 1 : 0);
       if (d.missingPaws?.has(index)) {
         ovalMesh(front?13:-20,h-1,s*8,4,4.5,3.6,4);
+        jointSection(front?13:-20,h-5.3,s*8,3.3,false);
         continue;
       }
       const firstPawFace=scene.faces.length;
@@ -166,8 +184,10 @@ function houndModel(d, load, snap, fall, sampleLunge) {
           3,
           4,
         );
-      if (d.severPaw===index)
+      if (d.severPaw===index) {
+        jointSection(front?13:-20,h+2+(front?chest:0)+.2,s*8,4.7,false);
         for (let i=firstPawFace;i<scene.faces.length;i++) scene.faces[i].paw=index;
+      }
     }
     for (let j = 0; j < 4; j++)
       sculpt(
@@ -410,6 +430,7 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
     const firstArmFace = scene.faces.length;
     if (d.missingArms?.has(s)) {
       ovalMesh(surge,shoulder-2,s*15,5,5.5,3.5,plate);
+      jointSection(surge,shoulder-2,s*18.5,4.7,true);
       continue;
     }
     const active = d.missingArms?.size===1 || s === (boss && pose.reverse ? -1 : 1);
@@ -490,8 +511,10 @@ function armoredModel(d, pose, boss, contact, bind, fall, sampleAttack) {
       }
       ovalMesh(28+shove, 57-sink, -24, 3, 6, 4, 5);
     }
-    if (d.severArm===s)
+    if (d.severArm===s) {
+      jointSection(surge-1,shoulder-2,s*9.1,5.2,true);
       for (let i=firstArmFace;i<scene.faces.length;i++) scene.faces[i].arm=s;
+    }
   }
   const headY = shoulder + 12;
   if (boss) {

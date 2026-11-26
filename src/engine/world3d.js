@@ -1,6 +1,6 @@
 import { knockdownPose, loweredHeight, impactDrop } from "./demon-fall.js";
 import { fallPose } from "./death.js";
-import { splitFaces, bladeIntersection, swingNormal } from "./cutting.js";
+import { splitFaces, bladeIntersection, swingNormal, woodSection, demonSection, spiritSection, isTimber } from "./cutting.js";
 import { attackPhases } from "./enemy-attacks.js";
 import { rollDuration, riposteWindow, parryTiming } from "./combat-timing.js";
 import { weapon } from "./weapons.js";
@@ -97,6 +97,9 @@ const pigment = [
   "36585c",
   "70958a",
   "766f59",
+  "dfb27c",
+  "a5754e",
+  "935f39",
 ];
 const roninInk = { 0: 25, 1: 15, 2: 16, 3: 17, 4: 18, 7: 7, 14: 27 };
 const colours = pigment.map((hex, m) => {
@@ -150,6 +153,7 @@ function place(x, z, rot = 0, scale = 1, base = groundHeight(x,z)) {
 }
 let groundPose = null, shoePitch = null;
 let cutCoordinates = null;
+let solidWood = false;
 let bodyTilt = null,
   torsoPose = null;
 function worldPoint([x, y, z]) {
@@ -251,6 +255,8 @@ function hull(rings, m, n = 8, detail = false, glow = 0) {
       triangle(a[i], b[k], b[i], m, detail, glow);
     }
   const cap = vertices.at(-1);
+  if (solidWood || cutCoordinates)
+    for (let i=1;i<n-1;i++) triangle(vertices[0][0],vertices[0][i+1],vertices[0][i],m,detail,glow);
   for (let i = 1; i < n - 1; i++)
     triangle(cap[0], cap[i], cap[i + 1], m, detail, glow);
 }
@@ -278,6 +284,9 @@ function rod(a, b, r, m, detail = false, glow = 0) {
     v[0] * right[1] - v[1] * right[0],
   ].map((k) => k / n);
   const points = [right, up, right.map((k) => -k), up.map((k) => -k)];
+  if (solidWood || cutCoordinates) {
+    for (const end of [a,b]) panel(points.map(e=>end.map((v,i)=>v+e[i])),m,detail,glow);
+  }
   for (let i = 0; i < 4; i++) {
     const e = points[i],
       f = points[(i + 1) % 4];
@@ -302,8 +311,8 @@ function noise3() {
 function model(x, z, draw, r = 170, scale = 1) {
   scene.faces = [];
   place(x, z, 0, scale);
-  draw();
-  const mesh = {...packFaces(scene.faces), id:meshes.length, x, z};
+  const post=draw();
+  const mesh = {...packFaces(scene.faces), id:meshes.length, x, z,post};
   meshes.push(mesh);
   return mesh;
 }
@@ -488,7 +497,8 @@ function torii() {
   }
 }
 function pine() {
-  addPost(origin[0], origin[2], 6 * scene.unit);
+  solidWood=true;
+  const post=addPost(origin[0], origin[2], 6 * scene.unit);
   rod([0, 0, 0], [7, 75, 1], 5, 0);
   rod([7, 75, 1], [-4, 140, 5], 3, 1);
   for (let j = 0; j < 7; j++) {
@@ -523,6 +533,8 @@ function pine() {
       );
     }
   }
+  solidWood=false;
+  return post;
 }
 function buildScenery() {
   for (const [x, z, s] of buildings) model(x, z, shrine, 260, s);
@@ -556,8 +568,9 @@ function buildScenery() {
     ].every(([dx, dz]) => groundKind(x + dx, z + dz) === 0);
   }
   function cedar() {
+    solidWood=true;
     const h = 225 + noise3() * 100;
-    addPost(origin[0], origin[2], 9 * scene.unit);
+    const post=addPost(origin[0], origin[2], 9 * scene.unit);
     hull(
       [
         [0, 0, 0, 11, 10],
@@ -580,6 +593,8 @@ function buildScenery() {
         8,
       );
     }
+    solidWood=false;
+    return post;
   }
   // Leave junctions and lake approaches open. Taller cedar stands outline the basin.
   for (let x = 120; x < W - 80; x += 260)
@@ -2215,14 +2230,16 @@ const fragments = [];
 export function resetCuts() {
   for (const [mesh,state] of cutPlants) {
     Object.assign(mesh,state.original);
+    delete mesh.lastSwing;
     if (mesh.post) mesh.post.cut=false;
   }
   cutPlants.clear();
+  meshes=meshes.filter(mesh=>!mesh.log);
   fragments.length=0;
   backdropKey="";
 }
 
-function releaseFragment(faces, direction, speed, hinge = null, motion = "loose") {
+function releaseFragment(faces, direction, speed, hinge = null, motion = "loose", timber=false) {
   const points = [...new Set(faces.flatMap(f=>f.slice(0,3)))];
   if (!points.length) return;
   const pivot = hinge ?? [0,1,2].map(k=>points.reduce((s,p)=>s+p[k],0)/points.length);
@@ -2244,19 +2261,14 @@ function releaseFragment(faces, direction, speed, hinge = null, motion = "loose"
       maxTilt=lo;
     }
   }
-  fragments.push({faces,points,pivot,direction:dir,speed,hinge,maxTilt,motion,at:run.phase});
+  const radius=points.reduce((r,p)=>Math.max(r,Math.hypot(p[0]-pivot[0],p[1]-pivot[1],p[2]-pivot[2])),0);
+  fragments.push({faces,points,pivot,direction:dir,speed,hinge,maxTilt,motion,at:run.phase,radius,
+    plant:timber?"tree":null,lastSwing:run.attackAt});
 }
 
-function drawFragments() {
-  for (let i=fragments.length-1;i>=0;i--) {
-    const f=fragments[i], t=run.phase-f.at;
-    if (t>1.9) { fragments.splice(i,1); continue; }
+function fragmentFaces(f,t) {
+    if (f.settled) return f.settled;
     const [x,y,z]=f.pivot, dir=f.direction;
-    if (!actorVisible(x,y,z,f.hinge?420:150)) continue;
-    if (f.settled) {
-      for (const face of f.settled) scene.faces.push(face);
-      continue;
-    }
     const lower=f.motion==="collapse", upper=f.motion==="split";
     const tilt=f.hinge ? f.maxTilt*ease(t/1.05) : lower ? 1.42*ease((t-.11)/.69) :
       upper ? 1.9*ease(t/.56)-.16*ease((t-.56)/.18) : 1.62*ease(t/.76);
@@ -2277,33 +2289,51 @@ function drawFragments() {
     }
     const lift=f.hinge ? 0 : Math.max(0,groundHeight(cx,cz)-bottom);
     for (const p of moved.values()) p[1]+=lift;
-    const start=scene.faces.length;
-    for (const [a,b,c,m,l,d] of f.faces)
-      scene.faces.push([moved.get(a),moved.get(b),moved.get(c),m,l,d]);
-    if (t>1.05 && (f.hinge || lift>0)) f.settled=scene.faces.slice(start);
+    const faces=f.faces.map(([a,b,c,m,l,d])=>[moved.get(a),moved.get(b),moved.get(c),m,l,d]);
+    if (t>1.05 && (f.hinge || lift>0)) f.settled=faces;
+    return faces;
+}
+function drawFragments() {
+  for (let i=fragments.length-1;i>=0;i--) {
+    const f=fragments[i], t=run.phase-f.at;
+    if (!f.plant && t>1.9) { fragments.splice(i,1); continue; }
+    if (!actorVisible(...f.pivot,f.radius+100) && !(f.plant && t>1.05)) continue;
+    const faces=fragmentFaces(f,t);
+    if (f.plant && f.settled) {
+      const mesh=packFaces(faces);
+      meshes.push({...mesh,id:meshes.length,x:mesh.center[0],z:mesh.center[2],plant:"tree",log:true,lastSwing:f.lastSwing});
+      fragments.splice(i,1);
+      backdropKey="";
+    } else for (const face of faces) scene.faces.push(face);
   }
 }
 
-export function cutVegetation(edges, heavy, direction, limit=edges.length) {
+export function cutVegetation(edges, direction, limit=edges.length) {
   if (!edges.length) return;
   const floor=groundHeight(run.pos,roadZ(run.depth));
   const segments=edges.map(edge=>edge.map(p=>[p.x,floor+p.z,p.y-trackY/depthRatio]));
-  for (const mesh of meshes) {
-    if (!mesh.plant || (mesh.plant==="tree" && !heavy) ||
-        Math.abs(mesh.x-run.pos)>145 || Math.abs(mesh.z-roadZ(run.depth))>145) continue;
+  const nearbyMoving=fragments.filter(f=>f.plant &&
+    Math.hypot(f.pivot[0]-run.pos,f.pivot[2]-roadZ(run.depth))<f.radius+160);
+  for (const mesh of [...meshes,...nearbyMoving]) {
+    if (!mesh.plant || mesh.lastSwing===run.attackAt) continue;
+    const moving=!!mesh.pivot;
+    const timber=mesh.plant==="tree";
+    const rooted=timber && !mesh.log && !moving;
+    if (!moving && (run.pos<mesh.lo[0]-120 || run.pos>mesh.hi[0]+120 ||
+        roadZ(run.depth)<mesh.lo[2]-120 || roadZ(run.depth)>mesh.hi[2]+120)) continue;
     const grouped=mesh.plant==="grass" || mesh.plant==="reeds";
     let state=cutPlants.get(mesh);
-    if (!grouped && state) continue;
-    const faces=mesh.levels[0].faces, hits=new Map();
+    if (!grouped && !timber && state) continue;
+    const faces=moving?fragmentFaces(mesh,run.phase-mesh.at):mesh.levels[0].faces, hits=new Map();
     for (let i=0;i<limit;i++) {
       const [a,b]=segments[i];
-      if (a.some((v,i)=>Math.max(v,b[i])<mesh.lo[i] || Math.min(v,b[i])>mesh.hi[i])) continue;
+      if (!moving && a.some((v,i)=>Math.max(v,b[i])<mesh.lo[i] || Math.min(v,b[i])>mesh.hi[i])) continue;
       for (const face of faces) {
         const group=grouped?face.stem:0;
-        if (group===undefined || hits.has(group) || state?.groups.has(group)) continue;
-        if (mesh.plant==="tree" && ![0,1,21].includes(face[3])) continue;
+        if (group===undefined || hits.has(group) || (grouped && state?.groups.has(group))) continue;
+        if (timber && !isTimber(face[3])) continue;
         const p=bladeIntersection(a,b,face);
-        if (p && (mesh.plant!=="tree" || Math.hypot(p[0]-mesh.x,p[2]-mesh.z)<20)) hits.set(group,{p,i});
+        if (p) hits.set(group,{p,i});
       }
     }
     if (!hits.size) continue;
@@ -2312,31 +2342,35 @@ export function cutVegetation(edges, heavy, direction, limit=edges.length) {
       const wood=mesh.plant==="tree" || mesh.plant==="bamboo";
       const normal=wood ? swingNormal(segments[i],segments[i>=2?i-2:i+2],direction) : [0,1,0];
       const offset=v=>normal[0]*(v[0]-p[0])+normal[1]*(v[1]-p[1])+normal[2]*(v[2]-p[2]);
-      if (offset([mesh.x,mesh.lo[1],mesh.z])>0)
+      if (!moving && offset([mesh.x,mesh.lo[1],mesh.z])>0)
         for (let k=0;k<3;k++) normal[k]*=-1;
-      const parts=splitFaces(remaining,offset,mesh.plant==="tree"?2:12,
+      const parts=splitFaces(remaining,offset,timber?woodSection:12,
         face=>!grouped || face.stem===group);
-      if (!parts.top.length || !parts.base.length) continue;
-      if (!state) {
+      if (!parts.top.length || !parts.base.length || (timber && !parts.woodRings)) continue;
+      if (!state && !moving && !mesh.log) {
         const {lo,hi,center,radius,levels}=mesh;
         state={original:{lo,hi,center,radius,levels},groups:new Set()};
         cutPlants.set(mesh,state);
       }
-      state.groups.add(group);
+      if (grouped) state.groups.add(group);
+      if (timber) mesh.lastSwing=run.attackAt;
       remaining=parts.base;
       const sideways=wood && Math.abs(normal[1])<.65;
       const fallDir=sideways ? {x:normal[0],y:normal[2]} : direction;
       let hinge=p;
-      if (sideways) {
+      if (sideways && (rooted || mesh.plant==="bamboo")) {
         const height=p[1]-mesh.lo[1];
         const offset=height*normal[1]/(normal[0]**2+normal[2]**2);
         const foot=[p[0]+offset*normal[0],mesh.lo[1],p[2]+offset*normal[2]];
         if (Math.hypot(foot[0]-mesh.x,foot[2]-mesh.z)<(mesh.plant==="tree"?15:4)) hinge=foot;
       }
-      releaseFragment(parts.top,fallDir,26,grouped?null:hinge);
+      releaseFragment(parts.top,fallDir,26,rooted || mesh.plant==="bamboo"?hinge:null,"loose",timber);
     }
     if (remaining!==faces) {
-      Object.assign(mesh,packFaces(remaining));
+      if (moving) {
+        fragments.splice(fragments.indexOf(mesh),1);
+        releaseFragment(remaining,mesh.direction,9,null,"loose",true);
+      } else Object.assign(mesh,packFaces(remaining));
       if (mesh.post && mesh.hi[1]-mesh.lo[1]<22) mesh.post.cut=true;
       backdropKey="";
     }
@@ -2389,7 +2423,7 @@ export function severDemon(d,hit,direction,vertical) {
     if (head) return x-22;
     if (leg) return (d.type===0?16:26)-y;
     return vertical ? side*z : y-(d.type===0?32:Math.min(80,Math.max(44,hit.level*95)));
-  },4,face=>!leg || face.slice(0,3).every(p=>{
+  },d.type===1?spiritSection:demonSection,face=>!leg || face.slice(0,3).every(p=>{
     const [x,,z]=coords.get(p);
     return side*z>0 && (d.type!==0 || x*localForward>=0);
   }));

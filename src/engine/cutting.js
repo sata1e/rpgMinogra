@@ -1,9 +1,27 @@
+// Outside to inside: bark, sapwood and heartwood; shell, tissue and core.
+export const woodSection = [21,39,40,39,41];
+export const demonSection = [35,34,35,17];
+export const spiritSection = [8,24,37,3];
+export function isTimber(material) {
+  return material===0 || material===1 || woodSection.includes(material);
+}
 // Faces use world coordinates [x, height, z] followed by their material and shading.
 export function splitFaces(faces, distance, capMaterial, eligible = () => true) {
   const base = [], top = [], seams = [];
+  let woodRings=0;
+  let woodBelow=false, woodAbove=false;
   for (const face of faces) {
     if (!eligible(face)) { base.push(face); continue; }
-    const points = face.slice(0,3), d = points.map(distance);
+    const points = face.slice(0,3), d = points.map(p=>{
+      const v=distance(p);
+      return Math.abs(v)<1e-7 ? 0 : v;
+    });
+    if (capMaterial===woodSection && isTimber(face[3])) {
+      woodBelow ||= d.some(v=>v<-.001);
+      woodAbove ||= d.some(v=>v>.001);
+    }
+    if (d.filter(v=>v===0).length===2 && d.some(v=>v<0))
+      seams.push([...points.filter((_,i)=>d[i]===0),face[3]]);
     if (d.every(v=>v<=0)) { base.push(face); continue; }
     if (d.every(v=>v>=0)) { top.push(face); continue; }
     const lower = [], upper = [], seam = [];
@@ -20,12 +38,14 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
     }
     for (const [poly,out] of [[lower,base],[upper,top]])
       for (let j=1;j+1<poly.length;j++) out.push([poly[0],poly[j],poly[j+1],...face.slice(3)]);
-    if (seam.length===2) seams.push(seam);
+    if (seam.length===2) seams.push([...seam,face[3]]);
   }
+  if (!base.length || !top.length || (capMaterial===woodSection && !(woodBelow && woodAbove)))
+    return {base,top,woodRings};
   // Close each ring independently, including when the same plane crosses both arms.
   const key = p=>p.map(v=>Math.round(v*1000)).join(',');
   const links = new Map();
-  for (const edge of seams) for (const p of edge) {
+  for (const edge of seams) for (const p of edge.slice(0,2)) {
     const k=key(p);
     if (!links.has(k)) links.set(k,[]);
     links.get(k).push(edge);
@@ -44,14 +64,34 @@ export function splitFaces(faces, distance, capMaterial, eligible = () => true) 
       p=key(edge[0])===key(p)?edge[1]:edge[0];
     }
     if (key(p)!==start || ring.length<3) continue;
-    const center=[0,1,2].map(k=>ring.reduce((s,v)=>s+v[k],0)/ring.length);
-    ring.forEach((a,i)=>{
-      const b=ring[(i+1)%ring.length];
-      base.push([a,b,center,capMaterial,4,true]);
-      top.push([b,a,center,capMaterial,3,true]);
+    const layers=capMaterial===woodSection && !isTimber(first[2]) ? [first[2]] :
+      Array.isArray(capMaterial) ? capMaterial : [capMaterial];
+    // Discard collinear intersections from previous triangulations before making new rings.
+    const corners=ring.filter((p,i)=>{
+      const a=ring[(i+ring.length-1)%ring.length], b=ring[(i+1)%ring.length];
+      const u=p.map((x,k)=>x-a[k]), v=b.map((x,k)=>x-p[k]);
+      return Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])>1e-6;
+    });
+    if (corners.length<3) continue;
+    if (layers===woodSection) woodRings++;
+    const center=[0,1,2].map(k=>corners.reduce((s,v)=>s+v[k],0)/corners.length);
+    const add=(a,b,c,m)=>{
+      base.push([a,b,c,m,5,true]);
+      top.push([c,b,a,m,5,true]);
+    };
+    let outer=corners;
+    layers.forEach((material,j)=>{
+      const radius=(layers.length-1-j)/layers.length;
+      const inner=corners.map(p=>p.map((v,k)=>center[k]+(v-center[k])*radius));
+      outer.forEach((a,i)=>{
+        const k=(i+1)%outer.length;
+        add(a,outer[k],radius?inner[k]:center,material);
+        if (radius) add(a,inner[k],inner[i],material);
+      });
+      outer=inner;
     });
   }
-  return {base,top};
+  return {base,top,woodRings};
 }
 
 export function swingNormal(segment, neighbor, heading) {
