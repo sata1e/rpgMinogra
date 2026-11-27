@@ -15,6 +15,7 @@ import {
   attack,
   keys,
   update,
+  ui,
 } from "./journey.js";
 import { renderWorld } from "./world3d.js";
 import { drawMap } from "./valley.js";
@@ -242,7 +243,10 @@ function bindControls() {
   });
 }
 let accumulatedTime=0;
+const frameBudget=1000/120;
+let nextPaint=0, nextHud=0, nextMap=0;
 function frame(now) {
+  const started=performance.now();
   const elapsed=run.last ? Math.max(0,(now-run.last)/1000) : 0;
   run.last=now;
   if (run.paused) accumulatedTime=0;
@@ -259,9 +263,11 @@ function frame(now) {
       }
     }
   }
-  if (!run.paused) {
-    renderWorld();
-    drawMap();
+  if (!run.paused && now+.25>=nextPaint) {
+    nextPaint=(now-nextPaint>=frameBudget ? now : nextPaint)+frameBudget;
+    if (now>=nextHud) { ui(); nextHud=now+50; }
+    if (now>=nextMap) { drawMap(); nextMap=now+80; }
+    renderWorld(frameBudget,started);
   }
   requestAnimationFrame(frame);
 }

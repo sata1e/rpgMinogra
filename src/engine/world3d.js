@@ -2802,23 +2802,24 @@ function shadePixel(x,y,mat,z,lum,detail,bx,by,bz,invX) {
 let backdrop = null,
   backdropKey = "";
 let detailScale = 0.83,
-  renderCost = 13,
+  renderCost = 7,
   samples = 0;
-function tuneResolution(ms) {
+function tuneResolution(ms,budget) {
   renderCost += 0.12 * (Math.min(80, ms) - renderCost);
   if (++samples < 16) return;
-  if (renderCost > 13.5 && detailScale > 0.32) {
+  if (renderCost > budget*.92 && detailScale > 0.32) {
     detailScale = Math.max(
       0.32,
-      detailScale * Math.max(0.79, Math.sqrt(12 / renderCost)),
+      detailScale * Math.max(0.79, Math.sqrt(budget*.78 / renderCost)),
     );
     samples = 0;
-  } else if (samples >= 90 && renderCost < 8.5 && detailScale < 1) {
+  } else if (samples >= 90 && renderCost < budget*.63 && detailScale < 1) {
     detailScale = Math.min(1, detailScale * 1.075);
     samples = 0;
   }
 }
-function renderWorld() {
+let nextReflection=0;
+function renderWorld(budget=1000/120,frameStart=performance.now()) {
   const w = Math.max(1, canvas.clientWidth),
     h = Math.max(1, canvas.clientHeight);
   const started = performance.now();
@@ -2830,6 +2831,7 @@ function renderWorld() {
     rows = ny;
     canvas.width = cols;
     canvas.height = rows;
+    nextReflection=0;
     frameImage = ctx.createImageData(canvas.width, canvas.height);
     imageWords = new Uint32Array(frameImage.data.buffer);
     depths = new Float32Array(cols * rows);
@@ -2869,7 +2871,10 @@ function renderWorld() {
     drawScenery();
     cachedVeilCount = veilCount;
     copyVeilLayers(veilLayers, cachedVeilLayers, cachedVeilCount);
-    if (waterVisible) renderReflection();
+    if (waterVisible && started>=nextReflection) {
+      renderReflection();
+      nextReflection=started+32;
+    }
     backdrop[0].set(depths);
     backdrop[1].set(materials);
     backdrop[2].set(lights);
@@ -2881,7 +2886,7 @@ function renderWorld() {
   edgeLight();
   paintPixels();
   ctx.putImageData(frameImage, 0, 0);
-  if (!run.paused) tuneResolution(performance.now() - started);
+  if (!run.paused) tuneResolution(performance.now()-frameStart,budget);
 }
 
 export {

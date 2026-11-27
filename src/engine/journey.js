@@ -1181,7 +1181,6 @@ function update(dt) {
       startCut(style, activeCut);
     }
   }
-  ui();
 }
 function biteReachesPlayer(d) {
   const dx = run.pos - d.x, dz = (run.depth - d.y) / depthRatio;
